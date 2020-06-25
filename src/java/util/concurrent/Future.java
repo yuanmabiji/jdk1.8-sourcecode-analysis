@@ -116,6 +116,16 @@ public interface Future<V> {
      * typically because it has already completed normally;
      * {@code true} otherwise
      */
+    /**
+     * 尝试取消线程任务的执行，分为以下几种情况：
+     * 1）如果线程任务已经完成或已经被取消或其他原因不能被取消，此时会失败并返回false；
+     * 2）如果任务还未开始执行，此时执行cancel方法，那么任务将被取消执行，此时返回true；TODO 此时对应任务状态state的哪种状态？？？不懂！！
+     * 3）如果任务已经开始执行，那么mayInterruptIfRunning这个参数将决定是否取消任务的执行。
+     *    这里值得注意的是，cancel(true)实质并不能真正取消线程任务的执行，而是发出一个线程
+     *    中断的信号，一般需要结合Thread.currentThread().isInterrupted()来使用。
+     * @param mayInterruptIfRunning
+     * @return
+     */
     boolean cancel(boolean mayInterruptIfRunning);
 
     /**
@@ -123,6 +133,10 @@ public interface Future<V> {
      * normally.
      *
      * @return {@code true} if this task was cancelled before it completed
+     */
+    /**
+     * 判断任务是否被取消，在执行任务完成前被取消，此时会返回true
+     * @return
      */
     boolean isCancelled();
 
@@ -134,6 +148,10 @@ public interface Future<V> {
      * {@code true}.
      *
      * @return {@code true} if this task completed
+     */
+    /**
+     * 这个方法不管任务正常停止，异常还是任务被取消，总是返回true。
+     * @return
      */
     boolean isDone();
 
@@ -147,6 +165,12 @@ public interface Future<V> {
      * exception
      * @throws InterruptedException if the current thread was interrupted
      * while waiting
+     */
+    /**
+     * 获取任务执行结果，注意是阻塞等待获取任务执行结果。
+     * @return
+     * @throws InterruptedException
+     * @throws ExecutionException
      */
     V get() throws InterruptedException, ExecutionException;
 
@@ -163,6 +187,16 @@ public interface Future<V> {
      * @throws InterruptedException if the current thread was interrupted
      * while waiting
      * @throws TimeoutException if the wait timed out
+     */
+    /**
+     * 获取任务执行结果，注意是阻塞等待获取任务执行结果。
+     * 只不过在规定的时间内未获取到结果，此时会抛出超时异常
+     * @param timeout
+     * @param unit
+     * @return
+     * @throws InterruptedException
+     * @throws ExecutionException
+     * @throws TimeoutException
      */
     V get(long timeout, TimeUnit unit)
         throws InterruptedException, ExecutionException, TimeoutException;
