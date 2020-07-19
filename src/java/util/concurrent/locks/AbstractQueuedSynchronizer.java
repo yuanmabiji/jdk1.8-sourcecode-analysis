@@ -386,6 +386,7 @@ public abstract class AbstractQueuedSynchronizer
         /** waitStatus value to indicate thread has cancelled */
         static final int CANCELLED =  1;
         /** waitStatus value to indicate successor's thread needs unparking */
+        /** SIGNAL当当前节点释放锁的时候需要唤醒后继节点，可想而知，当阻塞的时候需要将前驱节点的waitStatus置为SIGNAL */
         static final int SIGNAL    = -1;
         /** waitStatus value to indicate thread is waiting on condition */
         static final int CONDITION = -2;
@@ -2302,7 +2303,7 @@ public abstract class AbstractQueuedSynchronizer
                                                          int update) {
         return unsafe.compareAndSwapInt(node, waitStatusOffset,
                                         expect, update);
-    }
+    } 
 
     /**
      * CAS next field of a node.
