@@ -21,12 +21,14 @@
  *
  *
  *
- */
+ *//*
+
 package com.sun.source.util;
 
 import java.util.ServiceLoader;
 import javax.tools.StandardLocation;
 
+*/
 /**
  * The interface for a javac plug-in.
  *
@@ -47,19 +49,25 @@ import javax.tools.StandardLocation;
  * by the task listener.
  *
  * @since 1.8
- */
+ *//*
+
 @jdk.Exported
 public interface Plugin {
-    /**
+    */
+/**
      * Get the user-friendly name of this plug-in.
      * @return the user-friendly name of the plug-in
-     */
+     *//*
+
     String getName();
 
-    /**
+    */
+/**
      * Initialize the plug-in for a given compilation task.
      * @param task The compilation task that has just been started
      * @param args Arguments, if any, for the plug-in
-     */
+     *//*
+
     void init(JavacTask task, String... args);
 }
+*/

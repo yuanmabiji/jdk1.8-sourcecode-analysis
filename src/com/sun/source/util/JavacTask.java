@@ -21,7 +21,8 @@
  *
  *
  *
- */
+ *//*
+
 
 package com.sun.source.util;
 
@@ -38,17 +39,20 @@ import com.sun.tools.javac.api.BasicJavacTask;
 import com.sun.tools.javac.processing.JavacProcessingEnvironment;
 import com.sun.tools.javac.util.Context;
 
+*/
 /**
  * Provides access to functionality specific to the JDK Java Compiler, javac.
  *
  * @author Peter von der Ah&eacute;
  * @author Jonathan Gibbons
  * @since 1.6
- */
+ *//*
+
 @jdk.Exported
 public abstract class JavacTask implements CompilationTask {
 
-    /**
+    */
+/**
      * Get the {@code JavacTask} for a {@code ProcessingEnvironment}.
      * If the compiler is being invoked using a
      * {@link javax.tools.JavaCompiler.CompilationTask CompilationTask},
@@ -56,7 +60,8 @@ public abstract class JavacTask implements CompilationTask {
      * @param processingEnvironment the processing environment
      * @return the {@code JavacTask} for a {@code ProcessingEnvironment}
      * @since 1.8
-     */
+     *//*
+
     public static JavacTask instance(ProcessingEnvironment processingEnvironment) {
         if (!processingEnvironment.getClass().getName().equals(
                 "com.sun.tools.javac.processing.JavacProcessingEnvironment"))
@@ -66,35 +71,44 @@ public abstract class JavacTask implements CompilationTask {
         return (t != null) ? t : new BasicJavacTask(c, true);
     }
 
-    /**
+    */
+/**
      * Parse the specified files returning a list of abstract syntax trees.
      *
      * @return a list of abstract syntax trees
      * @throws IOException if an unhandled I/O error occurred in the compiler.
      * @throws IllegalStateException if the operation cannot be performed at this time.
-     */
-/*    public abstract Iterable<? extends CompilatiFontConfigManageronUnitTree> parse()
-        throws IOException;*/
+     *//*
 
-    /**
+*/
+/*    public abstract Iterable<? extends CompilatiFontConfigManageronUnitTree> parse()
+        throws IOException;*//*
+
+
+    */
+/**
      * Complete all analysis.
      *
      * @return a list of elements that were analyzed
      * @throws IOException if an unhandled I/O error occurred in the compiler.
      * @throws IllegalStateException if the operation cannot be performed at this time.
-     */
+     *//*
+
     public abstract Iterable<? extends Element> analyze() throws IOException;
 
-    /**
+    */
+/**
      * Generate code.
      *
      * @return a list of files that were generated
      * @throws IOException if an unhandled I/O error occurred in the compiler.
      * @throws IllegalStateException if the operation cannot be performed at this time.
-     */
+     *//*
+
     public abstract Iterable<? extends JavaFileObject> generate() throws IOException;
 
-    /**
+    */
+/**
      * The specified listener will receive notification of events
      * describing the progress of this compilation task.
      *
@@ -106,10 +120,12 @@ public abstract class JavacTask implements CompilationTask {
      * for the new listener.
      *
      * @throws IllegalStateException if the specified listener has already been added.
-     */
+     *//*
+
     public abstract void setTaskListener(TaskListener taskListener);
 
-    /**
+    */
+/**
      * The specified listener will receive notification of events
      * describing the progress of this compilation task.
      *
@@ -117,34 +133,44 @@ public abstract class JavacTask implements CompilationTask {
      *
      * @throws IllegalStateException if the specified listener has already been added.
      * @since 1.8
-     */
+     *//*
+
     public abstract void addTaskListener(TaskListener taskListener);
 
-    /**
+    */
+/**
      * The specified listener will no longer receive notification of events
      * describing the progress of this compilation task.
      *
      * This method may be called at any time before or during the compilation.
      *
      * @since 1.8
-     */
+     *//*
+
     public abstract void removeTaskListener(TaskListener taskListener);
 
-    /**
+    */
+/**
      * Get a type mirror of the tree node determined by the specified path.
      * This method has been superceded by methods on
      * {@link com.sun.source.util.Trees Trees}.
      * @see com.sun.source.util.Trees#getTypeMirror
-     */
+     *//*
+
     public abstract TypeMirror getTypeMirror(Iterable<? extends Tree> path);
 
-    /**
+    */
+/**
      * Get a utility object for dealing with program elements.
-     */
+     *//*
+
     public abstract Elements getElements();
 
-    /**
+    */
+/**
      * Get a utility object for dealing with type mirrors.
-     */
+     *//*
+
     public abstract Types getTypes();
 }
+*/
