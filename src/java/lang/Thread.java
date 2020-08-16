@@ -1248,7 +1248,16 @@ class Thread implements Runnable {
         }
 
         if (millis == 0) {
+            // 防止虚假唤醒
             while (isAlive()) {
+                // 注意：这里若其他线程A调用了本线程B的join方法，此时只要B线程还是活着的，此时A线程调用wait(0)方法释放锁阻塞住
+                // 参考：https://blog.csdn.net/zhanggang807/article/details/88843975
+                // 线程A调用线程B.join()方法，重载方法调用到join(long millis)方法
+                //循环检查条件线程B.isAlive()，如果是存活状态则释放锁，线程A进入等待状态，等待线程B执行完成
+                //为防止虚假唤醒，使用while循环方式来检查条件
+                //如果线程B终结了，则跳出while循环，join方法执行结束，回到线程A继续执行
+                // 【注意】此时线程A被阻塞了，当线程B结束后，此时并没有调用相应的notify方法赖唤醒线程A，请思考：此时线程A是在哪里被唤醒的呢？
+                // 【注意】在debug模式下，只要执行到断点处，肉眼看其他线程是不会执行的，这个跟debug模式有关，而实质其他线程应该是正在运行的
                 wait(0);
             }
         } else {

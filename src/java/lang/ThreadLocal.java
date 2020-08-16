@@ -462,25 +462,42 @@ public class ThreadLocal<T> {
             int len = tab.length;
             int i = key.threadLocalHashCode & (len-1);
 
-            for (Entry e = tab[i];
-                 e != null;
-                 e = tab[i = nextIndex(i, len)]) {
+            // 【注意】若e != null说明hash冲突了，明白这一点很重要
+            // 那么什么情况下会出现hash冲突呢？大部分情况下当ThreadLocal被作为静态成员变量时，此时必然会导致hash冲突
+            for (Entry e = tab[i]; e != null;  e = tab[i = nextIndex(i, len)]) {
                 ThreadLocal<?> k = e.get();
-
+                /*
+                 *public class ThreadLocalDemo1 {
+                    private static ThreadLocal<String> stringThreadLocal = new ThreadLocal<>();
+                    public static void main(String[] args) {
+                        for (int i = 0; i < 30; i++) {
+                            stringThreadLocal.set("yuanmabiji");
+                            System.gc();
+                        }
+                        stringThreadLocal.set("jinyue");
+                    }
+                  }
+                  * 【注意】以上demo逻辑的代码会进入以下if (k == key)判断逻辑，因为stringThreadLocal被强引用，即使GC的话
+                  * ThreadLocal对象也不会被回收。
+                 */
+                // 1）若hash冲突，此时若k == key，替换值即可
                 if (k == key) {
                     e.value = value;
                     return;
                 }
-
+                // 2）若hash冲突，若k == null，此时就要replaceStaleEntry(key, value, i);
                 if (k == null) {
                     replaceStaleEntry(key, value, i);
                     return;
                 }
             }
-
+            // 3）执行到这里，说明没有hash冲突，此时就新建一个Entry，然后调用cleanSomeSlots方法清理一部分
+            // key为null的Entry，【注意】这里是清理一部分，而不是全部Key为null的Entry哈
             tab[i] = new Entry(key, value);
             int sz = ++size;
+
             if (!cleanSomeSlots(i, sz) && sz >= threshold)
+                // 若达到了threshold且不存在Key为null的Entry的话，此时进行rehash
                 rehash();
         }
 
@@ -653,6 +670,21 @@ public class ThreadLocal<T> {
             do {
                 i = nextIndex(i, len);
                 Entry e = tab[i];
+                /*
+                public class ThreadLocalDemo5 {
+                    public static void main(String[] args) throws Exception{
+                        for (int i = 0; i < 30; i++) {
+                            setThreadLocal();
+                            System.gc();
+                        }
+                    }
+                    public static void setThreadLocal() {
+                        ThreadLocal<String> stringThreadLocal = new ThreadLocal<>();
+                        stringThreadLocal.set("yuanmabiji");
+                    }
+                }
+                【注意】这个demo逻辑的代码会当刚好扫到hash槽的Entry的key为null时，会进入以下if的逻辑
+                 */
                 if (e != null && e.get() == null) {
                     n = len;
                     removed = true;
