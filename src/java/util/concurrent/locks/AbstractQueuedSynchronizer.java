@@ -637,6 +637,10 @@ public abstract class AbstractQueuedSynchronizer
      * @param node the node
      */
     private void unparkSuccessor(Node node) {
+        // TODO 【Question2】 唤醒头结点的后一个节点后，不用将这个节点移除吗？
+        //      【Answer2】 答案就在acquireQueued方法，因为唤醒park的节点后，又会进入for循环，
+        //                 然后进入if (p == head && tryAcquire(arg)) 分支，重新设置当前被唤醒的节点为head节点
+        //                 和将之前Head节点的指向next置空帮助GC
         /*
          * If status is negative (i.e., possibly needing signal) try
          * to clear in anticipation of signalling.  It is OK if this
@@ -867,6 +871,7 @@ public abstract class AbstractQueuedSynchronizer
                     failed = false;
                     return interrupted;
                 }
+                // TODO 【Question1】假如park的线程被唤醒后，acquireQueued的执行逻辑是怎样的？
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
                     interrupted = true;
