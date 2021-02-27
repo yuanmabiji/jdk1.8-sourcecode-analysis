@@ -1070,7 +1070,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      *    workers are subject to termination (that is,
      *    {@code allowCoreThreadTimeOut || workerCount > corePoolSize})
      *    both before and after the timed wait, and if the queue is
-     *    non-empty, this worker is not the last thread in the pool.
+     *    non-empty, this worker is not the last thread in the pool.TODO 【Questio18】最后这句话如何理解？
      *
      * @return task, or null if the worker must exit, in which case
      *         workerCount is decremented
@@ -1083,27 +1083,48 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             int rs = runStateOf(c);
 
             // Check if queue empty only if necessary.
+            // r若2. The pool is stopped和3. The pool is shutdown and the queue is empty.那么返回null让线程退出
             if (rs >= SHUTDOWN && (rs >= STOP || workQueue.isEmpty())) {
                 decrementWorkerCount();
                 return null;
             }
-
+            // 执行到这里说明线程池没有关闭，此时获取wc
             int wc = workerCountOf(c);
 
             // Are workers subject to culling?
+            // 1，若设置了allowCoreThreadTimeOut为true，那么在空闲情况下达到了allowCoreThreadTimeOut，核心线程也会退出
+            // 2，若线程池数量超过了核心线程数，那么非核心线程也会退出
             boolean timed = allowCoreThreadTimeOut || wc > corePoolSize;
+            // 若线程池数量超过了设置的maximumPoolSize且任务队列为空的情况下，此时该线程退出。那么如何才会使得wc > maximumPoolSize呢？
+            // 当我们调用setMaximumPoolSize方法将线程池的maximumPoolSize调小后就会出现这种情况
 
+            // 根据下面的if判断语句，我们可以得出return null使得该线程退出的情况有以下四种：
+            //     1，线程池线程数量超过maximumPoolSize（maximumPoolSize至少为1）且线程池线程数量大于1后，该线程退出；TODO 【Questio16】为何这里只要wc>1即使任务队列不为空也退出？
+            //     2，线程池线程数量超过maximumPoolSize（maximumPoolSize至少为1）且任务队列为空的情况下该线程退出；
+            //     3，如果设置了allowCoreThreadTimeOut或者线程池线程数量超过了核心线程，超时后且且线程池线程数量大于1后，该线程退出；
+            //     4，如果设置了allowCoreThreadTimeOut或者线程池线程数量超过了核心线程，超时后且任务队列为空的情况下该线程退出；
             if ((wc > maximumPoolSize || (timed && timedOut))
                 && (wc > 1 || workQueue.isEmpty())) {
                 if (compareAndDecrementWorkerCount(c))
                     return null;
+                // 若compareAndDecrementWorkerCount(c)失败，那么将再次重试
                 continue;
             }
 
             try {
+                // 线程能执行到这里：
+                //               1，若timed==true即allowCoreThreadTimeOut为true或若线程池数量超过了核心线程数，
+                //               那么会执行超时的workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS)，超时后，
+                //               那么返回的r一定为null，此时timedOut变量将被置为true
                 Runnable r = timed ?
-                    workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS) :
-                    workQueue.take();
+                    workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS) : // 超时返回null
+                    workQueue.take(); // 没有任务则一直阻塞，适用没有设置allowCoreThreadTimeOut为true的核心线程
+                // TODO 【Questio17】为何这里要先判断下下 r!=null，而不是直接返回r(不管r为空还是非空)，因为如果r为空则说明肯定是获取任务超时的情况，
+                //                   此时可以直接返回，因为下面设置timeOut为true也是为了前面的代码执行的时候为true再返回null，为何要多此一举呢？
+                //      【Answer17】原因就在于该线程执行workQueue的poll和take方法后在阻塞过程中可能会被其他线程interrupt，如果是没有设置allowCoreThreadTimeOut
+                //                 的核心线程，那么此时需要再次进入workQueue.take的阻塞状态，此时需要catch住中断异常后将timedOut设置为false在下次循环时即可达到目的；
+                //                 而对于非核心线程或设置了allowCoreThreadTimeOut的核心线程，一样需要catch住中断异常后将timedOut设置为false在下次循环时即可再次
+                //                 调用workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS)达到目的；
                 if (r != null)
                     return r;
                 timedOut = true;
@@ -1213,7 +1234,18 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     w.unlock();
                 }
             }
-            // TODO 【Question15】completedAbruptly代表什么意思？worker线程执行到这里说明该线程要退出（线程退出），此时为啥将completedAbruptly = false？
+            // TODO 【Question15】completedAbruptly代表什么意思？worker线程执行到这里说明该线程要退出，此时为啥将completedAbruptly = false？
+            // 线程退出一定是while循环的task==null且getTask()==null，而getTask()==null线程会退出，以下情况会导致线程退出(getTask()==null)：
+            //  this worker must exit because of any of:
+            //     * 1. There are more than maximumPoolSize workers (due to
+            //     *    a call to setMaximumPoolSize).
+            //     * 2. The pool is stopped.
+            //     * 3. The pool is shutdown and the queue is empty.
+            //     * 4. This worker timed out waiting for a task, and timed-out
+            //     *    workers are subject to termination (that is,
+            //     *    {@code allowCoreThreadTimeOut || workerCount > corePoolSize})
+            //     *    both before and after the timed wait, and if the queue is
+            //     *    non-empty, this worker is not the last thread in the pool.
             completedAbruptly = false;
         } finally {
             // 线程退出，处理线程退出的逻辑
