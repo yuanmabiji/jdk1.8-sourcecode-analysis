@@ -903,7 +903,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         for (;;) {
             int c = ctl.get();
             int rs = runStateOf(c);
-
+            // TODO 1，当rs==SHUTDOWN且队列非空时，此时不会返回false，会继续执行下面的逻辑看是否需要新建新的线程
+            //      2，当rs > SHUTDOWN,此时直接返回false，拒绝新建新的线程
             // Check if queue empty only if necessary.
             if (rs >= SHUTDOWN &&
                 ! (rs == SHUTDOWN &&
@@ -913,25 +914,34 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
 
             for (;;) {
                 int wc = workerCountOf(c);
+                // 如果线程数量大于最大容量或大于指定的容量（core为true则为corePoolSize，core为false则为maximumPoolSize），则拒绝新建新的线程
                 if (wc >= CAPACITY ||
                     wc >= (core ? corePoolSize : maximumPoolSize))
                     return false;
+                // 若更新成功，跳出retry
                 if (compareAndIncrementWorkerCount(c))
                     break retry;
                 c = ctl.get();  // Re-read ctl
+                // 若更新失败，则continue retry
                 if (runStateOf(c) != rs)
                     continue retry;
                 // else CAS failed due to workerCount change; retry inner loop
             }
         }
-
+        // 能执行到这里的代码，说明要新建一个新的Worker线程
         boolean workerStarted = false;
         boolean workerAdded = false;
         Worker w = null;
         try {
+            // new Woker(firstTask)做了3件事情：
+            //                               1，将Worker父类AQS的state置为-1，目的是to suppress interrupts until the thread actually starts running tasks；
+            //                               2，将要执行的任务firstTask赋值给Worker的Runnable成员变量firstTask保存起来;
+            //                               3，利用线程工厂新建一个线程，并将这个线程赋值给Worker的Thread成员变量thread保存起来。
             w = new Worker(firstTask);
+            // 拿到刚才线程工厂创建的线程
             final Thread t = w.thread;
             if (t != null) {
+                // 因为workers是HashSet，所以这里要加把锁避免多线程问题
                 final ReentrantLock mainLock = this.mainLock;
                 mainLock.lock();
                 try {
@@ -939,29 +949,48 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     // Back out on ThreadFactory failure or if
                     // shut down before lock acquired.
                     int rs = runStateOf(ctl.get());
-
+                    // 在线程没有die的情况下，若满足下列条件则把新建的woker线程添加进workers集合中：
+                    // 1，runState是RUNNING状态即若runState小于SHUTDOWN；
+                    // 2，runState是SHUTDOWN状态且firstTask为空
                     if (rs < SHUTDOWN ||
                         (rs == SHUTDOWN && firstTask == null)) {
                         if (t.isAlive()) // precheck that t is startable
                             throw new IllegalThreadStateException();
+                        // TODO 【Question9】 这里workers为何用HashSet，而不用concurrent set？
+                        //      【Answer9】 Lock held on access to workers set and related bookkeeping.
+                        //     * While we could use a concurrent set of some sort, it turns out
+                        //     * to be generally preferable to use a lock. Among the reasons is
+                        //     * that this serializes interruptIdleWorkers, which avoids
+                        //     * unnecessary interrupt storms, especially during shutdown.
+                        //     * Otherwise exiting threads would concurrently interrupt those
+                        //     * that have not yet interrupted. It also simplifies some of the
+                        //     * associated statistics bookkeeping of largestPoolSize etc. We
+                        //     * also hold mainLock on shutdown and shutdownNow, for the sake of
+                        //     * ensuring workers set is stable while separately checking
+                        //     * permission to interrupt and actually interrupting.
                         workers.add(w);
                         int s = workers.size();
+                        // 用largestPoolSize变量记录池子的线程最大数量
                         if (s > largestPoolSize)
                             largestPoolSize = s;
+                        // 新建的worker线程被添加进workers集合后，将workerAdded标记为true
                         workerAdded = true;
                     }
                 } finally {
                     mainLock.unlock();
                 }
+                // 确保在新建的woker被添加进wokers集合后启动线程，并标记workerStarted为true
                 if (workerAdded) {
                     t.start();
                     workerStarted = true;
                 }
             }
         } finally {
+            // 执行到这里，说明新建的worker没有成功添加进workers集合，因此调用addWorkerFailed方法进行处理
             if (! workerStarted)
                 addWorkerFailed(w);
         }
+        // 最后返回workerStarted变量：如果新建的worker线程被成功添加进wokers集合且成功启动，返回true；否则false
         return workerStarted;
     }
 
@@ -1362,12 +1391,16 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
          * thread.  If it fails, we know we are shut down or saturated
          * and so reject the task.
          */
+        // 当线程池执行一个任务时，执行以下四个步骤：
         int c = ctl.get();
+        // 【1】 若线程池的woker线程小于corePoolSize,则直接新建一个worker线程来执行该任务；
         if (workerCountOf(c) < corePoolSize) {
-            if (addWorker(command, true))
+            // 若返回true，则说明新建一个新的线程成功且这个线程会执行这个command
+            if (addWorker(command, true)) // 注意这里传的是false，代表取值是corePoolSize
                 return;
             c = ctl.get();
         }
+        // 【2】若线程池的woker线程数量达到了corePoolSize，则将该任务入队，等待核心线程来执行；
         if (isRunning(c) && workQueue.offer(command)) {
             int recheck = ctl.get();
             if (! isRunning(recheck) && remove(command))
@@ -1375,7 +1408,9 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             else if (workerCountOf(recheck) == 0)
                 addWorker(null, false);
         }
-        else if (!addWorker(command, false))
+        // 【3】若任务入队失败，若线程池的worker线程数量还没达到maximumPoolSize，则新建一个非核心线程来执行
+        else if (!addWorker(command, false)) // 注意这里传的是false，代表取值是maximnumPoolSize
+            // 【4】若任务入队失败且线程池的worker线程数量达到了maximumPoolSize，此时则根据配置的拒绝策略来处理该任务
             reject(command);
     }
 

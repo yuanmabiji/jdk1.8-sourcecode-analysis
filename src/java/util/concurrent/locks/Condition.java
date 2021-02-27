@@ -299,7 +299,9 @@ public interface Condition {
      * interrupted status is cleared. It is not specified, in the first
      * case, whether or not the test for interruption occurs before the lock
      * is released.
-     *
+     * TODO 【Question5】 awaitNanos方法会返回一个剩余时间。当awaitNanos提前返回的话即该线程醒过来，此时可能被被虚假唤醒或被中断，
+     *                   总之此时的条件仍未满足，仍需要继续等待剩余时间，因此返回一个剩余时间非常有用！但一个线程调用awaitNanos方法后，
+     *                   什么情况下会提前返回呢？只有中断和被唤醒的情况下？
      * <p>The method returns an estimate of the number of nanoseconds
      * remaining to wait given the supplied {@code nanosTimeout}
      * value upon return, or a value less than or equal to zero if it

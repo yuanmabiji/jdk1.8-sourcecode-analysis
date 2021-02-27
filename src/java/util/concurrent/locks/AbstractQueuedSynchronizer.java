@@ -753,6 +753,7 @@ public abstract class AbstractQueuedSynchronizer
 
         // Skip cancelled predecessors
         Node pred = node.prev;
+        // 从后往前找到第一个未取消的节点
         while (pred.waitStatus > 0)
             node.prev = pred = pred.prev;
 
@@ -764,6 +765,7 @@ public abstract class AbstractQueuedSynchronizer
         // Can use unconditional write instead of CAS here.
         // After this atomic step, other Nodes can skip past us.
         // Before, we are free of interference from other threads.
+        // 将当前节点设置为CANCELLED
         node.waitStatus = Node.CANCELLED;
 
         // If we are the tail, remove ourselves.
@@ -781,6 +783,7 @@ public abstract class AbstractQueuedSynchronizer
                 if (next != null && next.waitStatus <= 0)
                     compareAndSetNext(pred, predNext, next);
             } else {
+                // 唤醒node节点的后续节点
                 unparkSuccessor(node);
             }
 
@@ -877,6 +880,7 @@ public abstract class AbstractQueuedSynchronizer
                     interrupted = true;
             }
         } finally {
+            // 能执行到这里，说明前面try代码段抛出了一个异常
             if (failed)
                 cancelAcquire(node);
         }
@@ -904,7 +908,9 @@ public abstract class AbstractQueuedSynchronizer
                     throw new InterruptedException();
             }
         } finally {
+            // 能执行到这里，说明前面try代码段抛出了一个异常，比如InterruptedException
             if (failed)
+                // 此时取消当前节点，满足条件则唤醒后续节点
                 cancelAcquire(node);
         }
     }

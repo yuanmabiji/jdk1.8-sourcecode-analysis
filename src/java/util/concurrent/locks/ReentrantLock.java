@@ -453,8 +453,10 @@ public class ReentrantLock implements Lock, java.io.Serializable {
      * @throws IllegalMonitorStateException if the current thread does not
      *         hold this lock
      */
-    // TODO 【Question3】 unlock是unpark一个线程还是将全部线程unpark呢
+    // 【Question3】 unlock是unpark一个线程还是将全部线程unpark呢
     //       【Answer3】 只是将头结点的后一个线程节点unpark而已，而不是unpark全部线程节点
+    // 【Question4】 一个在同步队列的park的线程被unpark后，是如何重新竞争锁的？
+    // 【Answer4】 当这个线程被unpark后，会重新调用if (p==head && tryAcquire(arg))这句代码的tryAcquire(arg)来重新竞争锁
     public void unlock() {
         sync.release(1);
     }
