@@ -1005,9 +1005,12 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         final ReentrantLock mainLock = this.mainLock;
         mainLock.lock();
         try {
+            // 将当前worker线程从workers集合移除，虽然可能没能添加进去
             if (w != null)
                 workers.remove(w);
+            // 将works集合的线程数量减1
             decrementWorkerCount();
+            // TODO 【Question10】线程池的各种状态切换是怎样的一个过程？每个状态分别代表什么含义？
             tryTerminate();
         } finally {
             mainLock.unlock();
@@ -1157,11 +1160,22 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         Thread wt = Thread.currentThread();
         Runnable task = w.firstTask;
         w.firstTask = null;
+        // TODO 【Question11】这里为什么要先unlock? allow interrupts?为啥先unlock就允许中断,lock就不允许被中断？
         w.unlock(); // allow interrupts
+
         boolean completedAbruptly = true;
         try {
+            // 1，线程执行任务时，若是新建的线程（不管是核心线程还是非核心线程），firstTask一般不为null，即满足task != null条件
+            // 2，若不是新建的线程即新建的线程执行完firstTask后，task会被置为null，此时会从任务队列中取任务执行
             while (task != null || (task = getTask()) != null) {
+                // TODO 【Question12】 在当前线程执行，为何还要lock？
+                //      【Answer12】 This class opportunistically extends AbstractQueuedSynchronizer
+                //                * to simplify acquiring and releasing a lock surrounding each
+                //                * task execution.  This protects against interrupts that are
+                //                * intended to wake up a worker thread waiting for a task from
+                //                * instead interrupting a task being run.
                 w.lock();
+                // TODO 【Question13】不太明白线程池的线程跟中断有啥关系？
                 // If pool is stopping, ensure thread is interrupted;
                 // if not, ensure thread is not interrupted.  This
                 // requires a recheck in second case to deal with
@@ -1172,27 +1186,37 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     !wt.isInterrupted())
                     wt.interrupt();
                 try {
+                    // 我们可以继承这个方法在worker线程执行任务前先做一些事情：may be used to re-initialize ThreadLocals, or to perform logging
                     beforeExecute(wt, task);
                     Throwable thrown = null;
                     try {
+                        // 执行任务
                         task.run();
+                    // 如果执行的任务抛出RuntimeException，先把该异常记录下来，并把该异常重新抛出去
                     } catch (RuntimeException x) {
                         thrown = x; throw x;
+                    // 如果执行的任务抛出Error，先把该异常记录下来，并把该异常重新抛出去
                     } catch (Error x) {
                         thrown = x; throw x;
+                    // 如果执行的任务抛出Throwable，先把该异常记录下来，并把该Throwable异常转换成Error异常后重新抛出去 TODO 【Question14】这里为何要将Throwable转成Error呢？
                     } catch (Throwable x) {
                         thrown = x; throw new Error(x);
+                    // 同样的，当worker线程执行完任务后（不管执行过程中有无异常），此时会调用beforeExecute方法做一些事情（若task执行有异常，该方法可以拿到异常）
                     } finally {
                         afterExecute(task, thrown);
                     }
                 } finally {
+                    // 不管是业务线程扔进来的task还是从队列取出来的task，只要执行过（不管执行有无异常），此时都将task置为null，且将该worker线程的completedTasks加1
                     task = null;
                     w.completedTasks++;
+
                     w.unlock();
                 }
             }
+            // TODO 【Question15】completedAbruptly代表什么意思？worker线程执行到这里说明该线程要退出（线程退出），此时为啥将completedAbruptly = false？
             completedAbruptly = false;
         } finally {
+            // 线程退出，处理线程退出的逻辑
             processWorkerExit(w, completedAbruptly);
         }
     }
