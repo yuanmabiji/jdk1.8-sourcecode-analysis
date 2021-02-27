@@ -1215,7 +1215,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                         task.run();
                     // 如果执行的任务抛出RuntimeException，先把该异常记录下来，并把该异常重新抛出去
                     } catch (RuntimeException x) {
-                        thrown = x; throw x;
+                        thrown = x; throw x; // TODO 【Question16】 由execute(Runnable r)或submit(FutureTask t)后，执行的任务抛出异常后，这两种情况有啥区别？
+                                             //      【Answer16】 execute(Runnable r)：由jvm钩子捕获到异常，打印异常;
+                                             //                  submit(FutureTask t)后会返回一个future对象，当调用future.get后会抛出一个执行任务异常ExecutionException。
+                                             //                  【记得是这样子，待确认。】
                     // 如果执行的任务抛出Error，先把该异常记录下来，并把该异常重新抛出去
                     } catch (Error x) {
                         thrown = x; throw x;
