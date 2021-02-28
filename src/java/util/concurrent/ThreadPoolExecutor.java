@@ -1037,23 +1037,33 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         final ReentrantLock mainLock = this.mainLock;
         mainLock.lock();
         try {
+            // 线程退出时累加当前到线程完成的任务数到线程池全局的完成到任务数completedTaskCount
             completedTaskCount += w.completedTasks;
+            // 将该线程从works集合中移除掉
             workers.remove(w);
         } finally {
             mainLock.unlock();
         }
-
+        // TODO 「Question16」 该方法到作用是啥？
         tryTerminate();
 
         int c = ctl.get();
+        // 若线程池的状态时RUNNING或SHUTDOWN，此时可能需要新增一个worker线程；
+        // 若线程池状态是STOP，TIDYING或TERMINATED，此时无需新增一个线程
         if (runStateLessThan(c, STOP)) {
+            // 如果线程是正常退出（非异常退出），即可能设置了allowCoreThreadTimeOut或非核心线程到正常退出
             if (!completedAbruptly) {
+                // 1）若是设置了allowCoreThreadTimeOut，若此时workQueue没有任务，此时min=0即即使线程池没有任何一个线程，也不需要新增一个线程；
+                //                                 若此时workQueue有任务，此时要保证线程池至少要有一个线程，此时若线程池没有一个线程，那么调用后面的addWorker(null, false);新增一个线程；否则，直接return；
+                // 2）若是没设置allowCoreThreadTimeOut，此时要保证线程池到数量为corePoolSize，如果线程池数量少于corePoolSize，则需要调用后面的addWorker(null, false);新增一个线程；否则，直接return；
                 int min = allowCoreThreadTimeOut ? 0 : corePoolSize;
                 if (min == 0 && ! workQueue.isEmpty())
                     min = 1;
                 if (workerCountOf(c) >= min)
                     return; // replacement not needed
             }
+            // 1）凡是线程异常退出的线程，不管是核心线程还是非核心线程（如果是非核心线程，则说明此时workQueue里可能还有任务且可能占满了），此时都要新建一个线程作为补充；
+            // 2）若线程正常退出，根据前面到两点分析来决定是否新增衣蛾线程。
             addWorker(null, false);
         }
     }
@@ -1237,7 +1247,11 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     w.unlock();
                 }
             }
-            // TODO 【Question15】completedAbruptly代表什么意思？worker线程执行到这里说明该线程要退出，此时为啥将completedAbruptly = false？
+            // 【Question15】completedAbruptly代表什么意思？worker线程执行到这里说明该线程要退出，此时为啥将completedAbruptly = false？
+            // 「Answer15」如果能执行到下面的completedAbruptly = false;，说明是线程到正常推出而非线程执行task时抛出异常而退出；
+            //            而没有执行到completedAbruptly = false;则说明线程执行任务时遇到异常，直接跳到下面到finally代码快
+            completedAbruptly = false;
+        } finally {
             // 线程退出一定是while循环的task==null且getTask()==null，而getTask()==null线程会退出，以下情况会导致线程退出(getTask()==null)：
             //  this worker must exit because of any of:
             //     * 1. There are more than maximumPoolSize workers (due to
@@ -1249,8 +1263,6 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             //     *    {@code allowCoreThreadTimeOut || workerCount > corePoolSize})
             //     *    both before and after the timed wait, and if the queue is
             //     *    non-empty, this worker is not the last thread in the pool.
-            completedAbruptly = false;
-        } finally {
             // 线程退出，处理线程退出的逻辑
             processWorkerExit(w, completedAbruptly);
         }
