@@ -1329,7 +1329,7 @@ public class ReentrantReadWriteLock
      * returned collection are in no particular order.  This method is
      * designed to facilitate construction of subclasses that provide
      * more extensive lock monitoring facilities.
-     *
+     * TODO 【Question20】分别获取读锁和写锁的线程被阻塞在同一个队列吗？
      * @return the collection of threads
      */
     protected Collection<Thread> getQueuedReaderThreads() {

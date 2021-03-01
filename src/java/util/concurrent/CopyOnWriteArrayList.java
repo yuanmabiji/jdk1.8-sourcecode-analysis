@@ -53,6 +53,9 @@ import java.util.function.UnaryOperator;
 import sun.misc.SharedSecrets;
 
 /**
+ * 参考链接： https://www.cnblogs.com/zz-ksw/p/12774371.html
+ * 【总结】CopyOnWriteList其实就是每次写数据时先加锁，然后拷贝一份数据出来写数据，写完后直接将原来数据替换掉，此时读数据是无锁的，比读写锁（因为读写锁只有读读才不互斥）更高效，适用于读多写少的情况。
+ *       TODO 【QUESTION22】 这种思想跟mysql的MVMM思想有什么区别？
  * A thread-safe variant of {@link java.util.ArrayList} in which all mutative
  * operations ({@code add}, {@code set}, and so on) are implemented by
  * making a fresh copy of the underlying array.
@@ -439,6 +442,7 @@ public class CopyOnWriteArrayList<E>
             int len = elements.length;
             Object[] newElements = Arrays.copyOf(elements, len + 1);
             newElements[len] = e;
+            // TODO 【QUESTION21】 在并发读的情况下，这里直接将新数组替换原来数组不会有问题么？还有一边写一边读，不会有类似事务问题么？
             setArray(newElements);
             return true;
         } finally {
