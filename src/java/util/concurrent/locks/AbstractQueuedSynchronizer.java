@@ -41,6 +41,9 @@ import java.util.Date;
 import sun.misc.Unsafe;
 
 /**
+ * 【注意】
+ *  1，tryLock即使在公平模式下也是非公平的，即只要锁没有任何线程获得的情况下，此时调用tryLock的这个线程闯进来会马上获得锁，而不顾那些正在队列等待的线程；
+ *  2，TODO 【Question18】tryLock(timeout)支持公平策略，但不支持非公平策略？
  * Provides a framework for implementing blocking locks and related
  * synchronizers (semaphores, events, etc) that rely on
  * first-in-first-out (FIFO) wait queues.  This class is designed to
@@ -787,7 +790,7 @@ public abstract class AbstractQueuedSynchronizer
                 unparkSuccessor(node);
             }
 
-            node.next = node; // help GC
+            node.next = node; // help GCf
         }
     }
 

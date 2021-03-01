@@ -577,6 +577,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private final AccessControlContext acc;
 
     /**
+     * TODO 【Question17】还没彻底理解Worker继承AQS的目的是什么？看到都是在worker线程内lock，但是在worker线程内lock不是属于单线程操作么？为何要Lock？
      * Class Worker mainly maintains interrupt control state for
      * threads running tasks, along with other minor bookkeeping.
      * This class opportunistically extends AbstractQueuedSynchronizer

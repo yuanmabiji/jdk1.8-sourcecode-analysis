@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="91977b8c-f426-4596-9049-933affe765ab" name="Default Changelist" comment="添加AQS注释。">
+    <list default="true" id="91977b8c-f426-4596-9049-933affe765ab" name="Default Changelist" comment="添加线程池注释。">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/java/util/concurrent/CountDownLatch.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/java/util/concurrent/CountDownLatch.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/java/util/concurrent/ThreadPoolExecutor.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/java/util/concurrent/ThreadPoolExecutor.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/java/util/concurrent/locks/AbstractQueuedSynchronizer.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/java/util/concurrent/locks/AbstractQueuedSynchronizer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/java/util/concurrent/locks/Condition.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/java/util/concurrent/locks/Condition.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/java/util/concurrent/locks/ReentrantLock.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/java/util/concurrent/locks/ReentrantLock.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -214,15 +213,13 @@
         <option name="Make" enabled="true" />
       </method>
     </configuration>
-    <configuration default="true" type="ArquillianTestNG" factoryName="" nameIsGenerated="true">
+    <configuration default="true" type="ArquillianJUnit" factoryName="" nameIsGenerated="true">
       <option name="arquillianRunConfiguration">
         <value>
           <option name="containerStateName" value="" />
         </value>
       </option>
-      <option name="TEST_OBJECT" value="CLASS" />
-      <properties />
-      <listeners />
+      <option name="TEST_OBJECT" value="class" />
       <method v="2">
         <option name="Make" enabled="true" />
       </method>
@@ -254,7 +251,8 @@
       <workItem from="1610964615083" duration="3805000" />
       <workItem from="1611461447956" duration="2236000" />
       <workItem from="1613990670322" duration="675000" />
-      <workItem from="1614054479208" duration="18258000" />
+      <workItem from="1614054479208" duration="25998000" />
+      <workItem from="1614561095429" duration="4911000" />
     </task>
     <task id="LOCAL-00001" summary="暂时注释掉报错的类。">
       <created>1595131536331</created>
@@ -277,7 +275,35 @@
       <option name="project" value="LOCAL" />
       <updated>1614074355935</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="添加AQS注释。">
+      <created>1614424356815</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1614424356815</updated>
+    </task>
+    <task id="LOCAL-00005" summary="添加AQS注释。">
+      <created>1614427450964</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1614427450964</updated>
+    </task>
+    <task id="LOCAL-00006" summary="添加线程池注释。">
+      <created>1614429992465</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1614429992465</updated>
+    </task>
+    <task id="LOCAL-00007" summary="添加线程池注释。">
+      <created>1614430397056</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1614430397056</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="ToolWindowManager">
@@ -321,12 +347,14 @@
         </entry>
       </map>
     </option>
+    <option name="oldMeFiltersMigrated" value="true" />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="暂时注释掉报错的类。" />
     <MESSAGE value="添加SIGNAL注释。" />
     <MESSAGE value="添加AQS注释。" />
-    <option name="LAST_COMMIT_MESSAGE" value="添加AQS注释。" />
+    <MESSAGE value="添加线程池注释。" />
+    <option name="LAST_COMMIT_MESSAGE" value="添加线程池注释。" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

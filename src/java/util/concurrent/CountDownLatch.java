@@ -172,7 +172,7 @@ public class CountDownLatch {
         protected int tryAcquireShared(int acquires) {
             return (getState() == 0) ? 1 : -1;
         }
-
+        // TODO 【Question19】唤醒同步队列中的所有线程是由releaseShare方法来唤醒还是由acquireShare方法的第一个被唤醒的线程来唤醒其后的线程呢？
         protected boolean tryReleaseShared(int releases) {
             // Decrement count; signal when transition to zero
             for (;;) {
