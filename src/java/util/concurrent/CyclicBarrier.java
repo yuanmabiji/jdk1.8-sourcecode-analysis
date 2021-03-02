@@ -188,11 +188,13 @@ public class CyclicBarrier {
      */
     private void breakBarrier() {
         generation.broken = true;
+        // count被重置了
         count = parties;
         trip.signalAll();
     }
 
     /**
+     * 注意：这里的dowait方法虽然返回线程第几个到达屏障的个数，但是这个返回值是被唤醒后才会被返回，当没被唤醒时，会在条件队列中休眠。
      * Main barrier code, covering the various policies.
      */
     private int dowait(boolean timed, long nanos)
@@ -202,21 +204,32 @@ public class CyclicBarrier {
         lock.lock();
         try {
             final Generation g = generation;
-
+            // 线程一进来，如果这一代Generation已经broken，此时抛出BrokenBarrierException
             if (g.broken)
                 throw new BrokenBarrierException();
-
+            // 如果当前线程已经被interrupt，此时breakBarrier即做以下三件事：1）将所有等待的barrier线程唤醒；2）重置当前的count为parties数量；3）将generation.broken标记为true，表示屏障遇到异常已经崩溃
+            //                                                      generation.broken = true;
+            //                                                      count = parties;
+            //                                                      trip.signalAll();
+            // 同时抛出InterruptedException
             if (Thread.interrupted()) {
                 breakBarrier();
                 throw new InterruptedException();
             }
-
+            // 将当前Generation的count减1
             int index = --count;
+            // 若index达到了0，此时说明屏障的最后一个线程已经到来，此时屏障倒下，做了以下事情：
+            //   1,若barrierCommand不为null，此时执行该任务；
+            //   2,任务正常执行完,此时ranAction标志为true，此时调用nextGeneration做了以下事情：
+            //     1）将所有等待的barrier线程唤醒；2）重置当前的count为parties数量；3）新建一个Generation对象，标志屏障已经重置，可以继续使用。
+            //   3,任务执行异常,此时ranAction标志为false，此时需要在finally块中调用breakBarrier来做三件事情：
+            //     1）将所有等待的barrier线程唤醒；2）重置当前的count为parties数量；3）将generation.broken标记为true，表示屏障遇到异常已经崩溃
             if (index == 0) {  // tripped
                 boolean ranAction = false;
                 try {
                     final Runnable command = barrierCommand;
                     if (command != null)
+                        // 可以看出，屏障任务task是由屏障的最后一个线程来执行的！
                         command.run();
                     ranAction = true;
                     nextGeneration();
@@ -226,18 +239,23 @@ public class CyclicBarrier {
                         breakBarrier();
                 }
             }
-
+            // 若不是最后一个barrier线程，那么均会执行到for死循环里
             // loop until tripped, broken, interrupted, or timed out
             for (;;) {
                 try {
+                    // 若不带超时的await，那么将进入条件队列无限park
                     if (!timed)
                         trip.await();
+                    // 若是带超时的await，那么将进入条件队列park一段时间，时间为nanos
                     else if (nanos > 0L)
                         nanos = trip.awaitNanos(nanos);
                 } catch (InterruptedException ie) {
+                    // 能执行到这里，说明正在条件队列parking的线程被interrupt
+                    // 若还是当前的generation且当前generation没有broken，此时执行breakBarrier，同时抛出interrupt异常
                     if (g == generation && ! g.broken) {
                         breakBarrier();
                         throw ie;
+                    // TODO 【QUESTION25】若不是当代的barrier或当代barrier已经broken，那么线程将自我interrupt下，搞个中断标记,这里有啥用？
                     } else {
                         // We're about to finish waiting even if we had not
                         // been interrupted, so this interrupt is deemed to
@@ -245,13 +263,24 @@ public class CyclicBarrier {
                         Thread.currentThread().interrupt();
                     }
                 }
-
+                // 若当代barrier已经broken，那么抛出BrokenBarrierException
+                // 【注意】破坏屏障的线程会抛出相应的异常比如超时，中断或执行任务异常而不是BrokenBarrierException哈，
+                //       在破坏者线程做出相应的破坏屏障动作后，只有其他正在条件队列parking的线程或刚进入dowait方法的线程才是抛出BrokenBarrierException
+                // 那么什么情况下g.broken会等于true呢？有以下情况：
+                //     1，正在条件队列parking的线程超时；
+                //     2，正在条件队列parking的线程被interrupt；
+                //     3，若屏障的最后一个线程到达且执行屏障任务过程中抛出异常；
+                //     4,若某个线程在调用dowait方法前被interrupt
+                //     5，当前barrier被reset
                 if (g.broken)
                     throw new BrokenBarrierException();
-
+                // 【注意】当且仅当当前generation不等于之前的generation时，此时才回返回index
+                // 怎么理解呢？也就是说当上一代barrier的最后一个线程到来时，会调用nextGeneration新建一个新的generation，
+                // 同时会唤醒上一代barrier的正在条件队列parking的其他线程，当其他被唤醒的其他线程执行到这里时就会符合(g != generation的条件
+                //
                 if (g != generation)
                     return index;
-
+                // 若正在条件队列parking的一个线程超时醒来后，此时nanos务必小于等于0，此时同样也是执行breakBarrier方法，并抛出TimeoutException
                 if (timed && nanos <= 0L) {
                     breakBarrier();
                     throw new TimeoutException();
@@ -356,6 +385,11 @@ public class CyclicBarrier {
      *         waiting, or the barrier was reset, or the barrier was
      *         broken when {@code await} was called, or the barrier
      *         action (if present) failed due to an exception
+     *         TODO 【QUESTION24】这里列出了说明情况下会抛出BrokenBarrierException。假如有n个线程正在await，此时有以下几种情况：
+     *                           1，await的其中一个线程timeout，此时其他线程会抛出BrokenBarrierException吗？
+     *                           2，await的其中一个线程被interrupt，此时其他线程会抛出BrokenBarrierException吗？
+     *                           3，如果调用了reset，此时其他线程会抛出BrokenBarrierException吗？
+     *
      */
     public int await() throws InterruptedException, BrokenBarrierException {
         try {
@@ -437,7 +471,7 @@ public class CyclicBarrier {
 
     /**
      * Queries if this barrier is in a broken state.
-     *
+     * TODO 【QUESTION23】这里仅仅是读取状态，为何要加锁？
      * @return {@code true} if one or more parties broke out of this
      *         barrier due to interruption or timeout since
      *         construction or the last reset, or a barrier action
