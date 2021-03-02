@@ -31,6 +31,7 @@ import java.util.function.Function;
 import java.io.Serializable;
 
 /**
+ * 集合图谱：https://www.cnblogs.com/jing99/p/7057245.html
  * An object that maps keys to values.  A map cannot contain duplicate keys;
  * each key can map to at most one value.
  *
@@ -44,7 +45,7 @@ import java.io.Serializable;
  * elements.  Some map implementations, like the <tt>TreeMap</tt> class, make
  * specific guarantees as to their order; others, like the <tt>HashMap</tt>
  * class, do not.
- *
+ *  TODO 【QUESTION26】可变的对象作为key，此时如何理解？有相应的例子么？
  * <p>Note: great care must be exercised if mutable objects are used as map
  * keys.  The behavior of a map is not specified if the value of an object is
  * changed in a manner that affects <tt>equals</tt> comparisons while the
@@ -192,7 +193,8 @@ public interface Map<K,V> {
      * {@code k} to a value {@code v} such that {@code (key==null ? k==null :
      * key.equals(k))}, then this method returns {@code v}; otherwise
      * it returns {@code null}.  (There can be at most one such mapping.)
-     *
+     * 【QUESTION27】这段话如何理解？
+     * 【ANSWER27】这段话的意思是说get返回null值并不代表该map不包含任何值，因为有些map集合是允许null key和null value的。
      * <p>If this map permits null values, then a return value of
      * {@code null} does not <i>necessarily</i> indicate that the map
      * contains no mapping for the key; it's also possible that the map
@@ -280,7 +282,7 @@ public interface Map<K,V> {
      * of calling {@link #put(Object,Object) put(k, v)} on this map once
      * for each mapping from key <tt>k</tt> to value <tt>v</tt> in the
      * specified map.  The behavior of this operation is undefined if the
-     * specified map is modified while the operation is in progress.
+     * specified map is modified while the operation is in progress. TODO 【QUESTION27】最后这句话如何理解？
      *
      * @param m mappings to be stored in this map
      * @throws UnsupportedOperationException if the <tt>putAll</tt> operation
@@ -310,7 +312,9 @@ public interface Map<K,V> {
     /**
      * Returns a {@link Set} view of the keys contained in this map.
      * The set is backed by the map, so changes to the map are
-     * reflected in the set, and vice-versa.  If the map is modified
+     * reflected in the set, and vice-versa. （TODO 【QUESTION28】修改这个set集合也会关联到map集合吗？因为拥有的是对同一个对象的引用？待确认。）
+     * TODO 【QUESTION29】关于迭代的时候对map集合的增删改查如何理解？
+     * If the map is modified
      * while an iteration over the set is in progress (except through
      * the iterator's own <tt>remove</tt> operation), the results of
      * the iteration are undefined.  The set supports element removal,
@@ -367,7 +371,7 @@ public interface Map<K,V> {
      * valid <i>only</i> for the duration of the iteration; more formally,
      * the behavior of a map entry is undefined if the backing map has been
      * modified after the entry was returned by the iterator, except through
-     * the <tt>setValue</tt> operation on the map entry.
+     * the <tt>setValue</tt> operation on the map entry.TODO 【QUESTION30】最后这句话如何理解？
      *
      * @see Map#entrySet()
      * @since 1.2
@@ -379,7 +383,7 @@ public interface Map<K,V> {
          * @return the key corresponding to this entry
          * @throws IllegalStateException implementations may, but are not
          *         required to, throw this exception if the entry has been
-         *         removed from the backing map.
+         *         removed from the backing map.TODO 【QUESTION31】自己举个例子验证下抛出这个异常。
          */
         K getKey();
 
