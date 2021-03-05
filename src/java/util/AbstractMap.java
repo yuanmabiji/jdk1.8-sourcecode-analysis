@@ -36,7 +36,7 @@ import java.util.Map.Entry;
  * will, in turn, be implemented atop <tt>AbstractSet</tt>.  This set should
  * not support the <tt>add</tt> or <tt>remove</tt> methods, and its iterator
  * should not support the <tt>remove</tt> method.
- *
+ * TODO 【QUESTION36】这段话如何理解？
  * <p>To implement a modifiable map, the programmer must additionally override
  * this class's <tt>put</tt> method (which otherwise throws an
  * <tt>UnsupportedOperationException</tt>), and the iterator returned by
@@ -488,7 +488,9 @@ public abstract class AbstractMap<K,V> implements Map<K,V> {
                 Entry<K,V> e = i.next();
                 K key = e.getKey();
                 V value = e.getValue();
+                // 首先要根据值是否为null来判断，如果值为null直接调用value.equals方法会抛出NPE
                 if (value == null) {
+                    // 若比较的对象为null，自身对象不为null，直接返回false即可；若自身对象也是null，那么再判断下自身是否包含这个key，如果包含则为true，不返回false
                     if (!(m.get(key)==null && m.containsKey(key)))
                         return false;
                 } else {
@@ -527,6 +529,7 @@ public abstract class AbstractMap<K,V> implements Map<K,V> {
         int h = 0;
         Iterator<Entry<K,V>> i = entrySet().iterator();
         while (i.hasNext())
+            // 返回每个entry的哈希码的累加和
             h += i.next().hashCode();
         return h;
     }

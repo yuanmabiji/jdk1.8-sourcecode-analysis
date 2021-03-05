@@ -30,6 +30,9 @@ package java.lang;
  * Every class has {@code Object} as a superclass. All objects,
  * including arrays, implement the methods of this class.
  *
+ * 《Effective Java》中提到：Object的所有非final方法（equals,hashCode,toString，clone和finalize）都有明确的通用约定，
+ * 因为他们被设计为要被覆盖的。任何一个类，在覆盖这些方法的时候，都要遵守这些通用约定，若不能做到这一点，其他依赖于这些约定的类
+ * （如HashMap何HashSet）就无法结合该类一起正常工作！
  * @author  unascribed
  * @see     java.lang.Class
  * @since   JDK1.0
@@ -69,21 +72,25 @@ public class Object {
      * <p>
      * The general contract of {@code hashCode} is:
      * <ul>
+     *     1，同一个对象总是返回相同的哈希码；
      * <li>Whenever it is invoked on the same object more than once during
      *     an execution of a Java application, the {@code hashCode} method
      *     must consistently return the same integer, provided no information
      *     used in {@code equals} comparisons on the object is modified.
      *     This integer need not remain consistent from one execution of an
      *     application to another execution of the same application.
+     *     2，两个相等的对象的哈希码必须相同；TODO 【QUESTION32】反过来，哈希码不同，两个对象必然不等？
      * <li>If two objects are equal according to the {@code equals(Object)}
      *     method, then calling the {@code hashCode} method on each of
      *     the two objects must produce the same integer result.
+     *     3，两个不相等的对象可能会哈希冲突，当然，如果两个不相等的对象产生的哈希不冲突能提高性能。
      * <li>It is <em>not</em> required that if two objects are unequal
      *     according to the {@link java.lang.Object#equals(java.lang.Object)}
      *     method, then calling the {@code hashCode} method on each of the
      *     two objects must produce distinct integer results.  However, the
      *     programmer should be aware that producing distinct integer results
      *     for unequal objects may improve the performance of hash tables.
+     *
      * </ul>
      * <p>
      * As much as is reasonably practical, the hashCode method defined by
@@ -99,30 +106,42 @@ public class Object {
      */
     public native int hashCode();
 
+
+    // 【QUESTION34】说明时候该覆盖equals方法呢？
+    // 【ANSWER34】 如果类具有自己特有的“逻辑相等”概念（不同于对象相等概念），而且超类还没有覆盖equals以实现期望的行为，这时候就要求我们覆盖equals方法,
+    //             例如Integer和Date覆盖了equals方法实现了逻辑相等而非对象相等。但是有一种“值类”不需要覆盖equals方法，即枚举类型就属于这种类，对于这样
+    //             的类而言，逻辑相同与对象相同是一回事，因为枚举类而言，用实例受控确保“每个值至多只存在一个对象”
+    // TODO 【QUESTION35】equals,compare和compareTo之间有啥区别？
     /**
      * Indicates whether some other object is "equal to" this one.
      * <p>
      * The {@code equals} method implements an equivalence relation
      * on non-null object references:
+     * equals方法在非空对象上有以下特性：
      * <ul>
+     *     1，自反性
      * <li>It is <i>reflexive</i>: for any non-null reference value
      *     {@code x}, {@code x.equals(x)} should return
      *     {@code true}.
+     *     2，对称性
      * <li>It is <i>symmetric</i>: for any non-null reference values
      *     {@code x} and {@code y}, {@code x.equals(y)}
      *     should return {@code true} if and only if
      *     {@code y.equals(x)} returns {@code true}.
+     *     3，传递性
      * <li>It is <i>transitive</i>: for any non-null reference values
      *     {@code x}, {@code y}, and {@code z}, if
      *     {@code x.equals(y)} returns {@code true} and
      *     {@code y.equals(z)} returns {@code true}, then
      *     {@code x.equals(z)} should return {@code true}.
+     *     4，一致性
      * <li>It is <i>consistent</i>: for any non-null reference values
      *     {@code x} and {@code y}, multiple invocations of
      *     {@code x.equals(y)} consistently return {@code true}
      *     or consistently return {@code false}, provided no
      *     information used in {@code equals} comparisons on the
      *     objects is modified.
+     *     5，非空对象与空对象比较总是返回false
      * <li>For any non-null reference value {@code x},
      *     {@code x.equals(null)} should return {@code false}.
      * </ul>
@@ -134,6 +153,7 @@ public class Object {
      * if {@code x} and {@code y} refer to the same object
      * ({@code x == y} has the value {@code true}).
      * <p>
+     * 【契约】覆盖了equals方法，通常需要覆盖hashcode方法 TODO 【QUESTION33】why?
      * Note that it is generally necessary to override the {@code hashCode}
      * method whenever this method is overridden, so as to maintain the
      * general contract for the {@code hashCode} method, which states
