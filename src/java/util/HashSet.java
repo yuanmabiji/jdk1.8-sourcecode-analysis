@@ -217,6 +217,8 @@ public class HashSet<E>
      * element
      */
     public boolean add(E e) {
+        // 【QUESTION45】 可以看到HashSet底层是用HashMap实现，set每次增加一个元素都会增加一个键值对，此时不会很浪费空间么？
+        // 【ANSWER45】 浪费不了多少空间，所有的value都指向一个对象即PRESENT
         return map.put(e, PRESENT)==null;
     }
 

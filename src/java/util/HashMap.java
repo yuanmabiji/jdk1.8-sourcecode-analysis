@@ -52,7 +52,7 @@ import sun.misc.SharedSecrets;
  * <tt>HashMap</tt> instance (the number of buckets) plus its size (the number
  * of key-value mappings).  Thus, it's very important not to set the initial
  * capacity too high (or the load factor too low) if iteration performance is
- * important.
+ * important. TODO 【QUESTION44】最后一句话如何理解？
  *
  * <p>An instance of <tt>HashMap</tt> has two parameters that affect its
  * performance: <i>initial capacity</i> and <i>load factor</i>.  The
@@ -760,9 +760,13 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         // 执行到这里，说明oldThr==0即用的是DEFAULT_INITIAL_CAPACITY，此时计算newCap和newThr
         else {               // zero initial threshold signifies using defaults
             newCap = DEFAULT_INITIAL_CAPACITY;
+            // 若loadFactor>1且一开始就定义了很大的initialCapacity（比如2^29），在不断扩容过程中，在第n次扩容时，必然会导致newThr溢出
             newThr = (int)(DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
         }
-        // 若newThr == 0，说明应该是用户自定义了初始容量和负载因子，这里计算下阈值newThr TODO 【QUESTION41】这个计算为啥不移动到else if (oldThr > 0)这个分支呢？还有其他情况？
+        // 若newThr == 0，说明应该是用户自定义了初始容量和负载因子，这里计算下阈值newThr
+        // 【QUESTION41】这个计算为啥不移动到else if (oldThr > 0)这个分支呢？还有其他情况？溢出？
+        // 【ANSWER41】若loadFactor>1且一开始就定义了很大的initialCapacity（比如2^29），在不断扩容过程中，在第n次扩容时，必然会导致newThr溢出，
+        // 因此此时需要给newThr赋值Integer.MAX_VALUE
         if (newThr == 0) {
             float ft = (float)newCap * loadFactor;
             newThr = (newCap < MAXIMUM_CAPACITY && ft < (float)MAXIMUM_CAPACITY ?
@@ -1559,6 +1563,21 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             current = null;
             K key = p.key;
             removeNode(hash(key), key, null, false, false);
+            // 【知识点】这里就解答了为何迭代器在迭代过程中可以删除元素而不会抛出ConcurrentModificationException。
+            // 在以下两种情况下会抛出ConcurrentModificationException：
+            //  1)一个线程在迭代，另一个线程通过map.remove方法移除元素
+            //  2)在迭代过程中，同一个线程通过map.remove方法移除元素
+            // TODO 【QUESTION42】为何在迭代过程中用迭代器移除就不需要抛出ConcurrentModificationException？
+            //                  看到map.remove和HashIterator.remove都调用了removeNode方法，唯一区别就是传的movable值不同
+            //                  map.remove调用removeNode方法时传的movable参数为true，而HashIterator.remove调用
+            //                  removeNode方法时传的movable参数为false，此时有何区别？
+            // 【ANSWER42】答案可参考：http://www.voidcn.com/article/p-ehvjpmvg-btg.html
+            //               Iterator.remove()不会抛出ConcurrentModificationException,因为这是在迭代时修改集合的允许方式.
+            //              如果您以任何其他方式更改正在迭代的集合,那么您可能会遇到异常.
+            //              如果在同一个集合中有两个迭代器,并且通过其中一个迭代器删除,则您也有可能获得异常.
+            //              What iterator.remove does different from list.remove that iterator does not throw exception while list.remove does throw?
+            //              这个交易是当你通过迭代器删除时,迭代器的实现能够更新其数据结构以考虑删除.相反,如果通过集合对象删除(或插入或替换),则无法更新迭代器数据结构以使其与集合保持同步.
+            //              (还有一个问题是非并发集合类型未实现为线程安全的,因此如果集合和迭代器由不同的线程使用/更新,您也可能会出现异常.)
             expectedModCount = modCount;
         }
     }
@@ -1580,7 +1599,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
 
     /* ------------------------------------------------------------ */
     // spliterators
-
+    // 这个是用来分割迭代用的，用于并行计算
     static class HashMapSpliterator<K,V> {
         final HashMap<K,V> map;
         Node<K,V> current;          // current node
