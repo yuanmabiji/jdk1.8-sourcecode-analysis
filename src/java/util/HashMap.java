@@ -1528,10 +1528,14 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         int index;             // current slot
 
         HashIterator() {
+            // 新建HashIterator时，就将modCount赋值给expectedModCount，以便fail-fast
             expectedModCount = modCount;
+            // 拿到哈希表
             Node<K,V>[] t = table;
             current = next = null;
             index = 0;
+            // 这里在迭代器构建时就需要优先拿到第一个元素，因为我们使用迭代器时一般在拿到迭代器后，会调用hasNext方法
+            // 若哈希表不为空，那么则遍历哈希表，拿到第一个不是空桶的第一个节点元素
             if (t != null && size > 0) { // advance to first entry
                 do {} while (index < t.length && (next = t[index++]) == null);
             }
@@ -1543,11 +1547,18 @@ public class HashMap<K,V> extends AbstractMap<K,V>
 
         final Node<K,V> nextNode() {
             Node<K,V>[] t;
+            // 一般我们使用迭代器时，while循环调用hasNext方法为true后，此时会接着调用迭代器的next方法取出元素
+            // 暂存next元素，用于最后返回
             Node<K,V> e = next;
+            // 若在迭代的过程中，调用了map.remove方法，则fail-fast
             if (modCount != expectedModCount)
                 throw new ConcurrentModificationException();
+            // 若要返回的e为空，说明不符合逻辑，可能是没判断直接调用了next方法，故抛出NoSuchElementException
             if (e == null)
                 throw new NoSuchElementException();
+            // 继续寻找下一个节点元素，有两层含义：
+            // 1）首先寻找这个桶位置当前节点的下一个元素赋值给next，并把当前节点元素赋值给current，用于remove方法
+            // 2）若这个桶的元素被迭代完了，则进入if判断逻辑，继续寻找下一个非空的桶的第一个元素
             if ((next = (current = e).next) == null && (t = table) != null) {
                 do {} while (index < t.length && (next = t[index++]) == null);
             }
@@ -1555,13 +1566,19 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         }
 
         public final void remove() {
+            // 拿到当前节点
             Node<K,V> p = current;
+            // 异常
             if (p == null)
                 throw new IllegalStateException();
+            // fail-fast
             if (modCount != expectedModCount)
                 throw new ConcurrentModificationException();
+            // 将当前current指针置为null
             current = null;
+            // 拿到当前节点的Key
             K key = p.key;
+            // 【注意】这里调用removeNode方法传入的movable参数为false，而map.removeNode方法传入的movable参数为true
             removeNode(hash(key), key, null, false, false);
             // 【知识点】这里就解答了为何迭代器在迭代过程中可以删除元素而不会抛出ConcurrentModificationException。
             // 在以下两种情况下会抛出ConcurrentModificationException：
@@ -1581,17 +1598,19 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             expectedModCount = modCount;
         }
     }
-
+    // KeyIterator,ValueIterator和EntryIterator都继承了HashIterator，实现了Iterator接口
+    // 即这三个迭代器的迭代逻辑都在HashIterator实现，区别只是返回值不同而已。
+    // KeyIterator继承了HashIterator，实现了Iterator接口
     final class KeyIterator extends HashIterator
             implements Iterator<K> {
         public final K next() { return nextNode().key; }
     }
-
+    // ValueIterator继承了HashIterator，实现了Iterator接口
     final class ValueIterator extends HashIterator
             implements Iterator<V> {
         public final V next() { return nextNode().value; }
     }
-
+    // EntryIterator继承了HashIterator，实现了Iterator接口
     final class EntryIterator extends HashIterator
             implements Iterator<Map.Entry<K,V>> {
         public final Map.Entry<K,V> next() { return nextNode(); }
