@@ -249,6 +249,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * The maximum capacity, used if a higher value is implicitly specified
      * by either of the constructors with arguments.
      * MUST be a power of two <= 1<<30.
+     * 注意这里是1左移30位即2^30，不是30左移1位哈
      */
     static final int MAXIMUM_CAPACITY = 1 << 30;
 
@@ -468,6 +469,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
             throw new IllegalArgumentException("Illegal load factor: " +
                     loadFactor);
         this.loadFactor = loadFactor;
+        // 这里利用threshold变量来传递自定义的初始容量大小 TODO 【QUESTION40】 为何不定义一个initialSize来存放自定义的初始容量大小呢？
         this.threshold = tableSizeFor(initialCapacity);
     }
 
@@ -729,49 +731,91 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * @return the table
      */
     final Node<K,V>[] resize() {
+        // 拿到旧哈希表
         Node<K,V>[] oldTab = table;
+        // 得到旧哈希表的容量大小oldCap
         int oldCap = (oldTab == null) ? 0 : oldTab.length;
+        // 拿到旧哈希表的阈值大小oldThr
         int oldThr = threshold;
         int newCap, newThr = 0;
+        // 如果旧哈希表的容量大于0，则说明之前已经初始化过
         if (oldCap > 0) {
+            // 若旧哈希表的容量oldCap已经达到了MAXIMUM_CAPACITY（2^30），那么就不再扩容了，并将阈值设置为Integer.MAX_VALUE(2^32-1)，
+            // 下次即使到达这个阈值，因为oldCap >= MAXIMUM_CAPACITY（2^30）,也不会扩容了
             if (oldCap >= MAXIMUM_CAPACITY) {
                 threshold = Integer.MAX_VALUE;
                 return oldTab;
             }
+            // 若旧哈希表的容量oldCap还没达到MAXIMUM_CAPACITY（2^30），此时进行扩容一倍
+            // 若扩容后的新哈希表的容量newCap没有超过MAXIMUM_CAPACITY（2^30）且旧哈希表的容量oldCap已经超过初始容量DEFAULT_INITIAL_CAPACITY（16），
+            // 此时将阈值也扩容一倍作为新哈希表的阈值newThr
             else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
                     oldCap >= DEFAULT_INITIAL_CAPACITY)
                 newThr = oldThr << 1; // double threshold
         }
+        // 代码执行到这里，说明哈希表还未初始化过，此时执行初始化逻辑，初始化newCap和newThr，还有根据newCap新建一个Node<K,V>[]数组table
+        // 注意，oldThr装的是threshold的值，而threshold不为0则说明是用户自定义的初始化容量大小
         else if (oldThr > 0) // initial capacity was placed in threshold
             newCap = oldThr;
+        // 执行到这里，说明oldThr==0即用的是DEFAULT_INITIAL_CAPACITY，此时计算newCap和newThr
         else {               // zero initial threshold signifies using defaults
             newCap = DEFAULT_INITIAL_CAPACITY;
             newThr = (int)(DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
         }
+        // 若newThr == 0，说明应该是用户自定义了初始容量和负载因子，这里计算下阈值newThr TODO 【QUESTION41】这个计算为啥不移动到else if (oldThr > 0)这个分支呢？还有其他情况？
         if (newThr == 0) {
             float ft = (float)newCap * loadFactor;
             newThr = (newCap < MAXIMUM_CAPACITY && ft < (float)MAXIMUM_CAPACITY ?
                     (int)ft : Integer.MAX_VALUE);
         }
+        // 得到新阈值
         threshold = newThr;
+        // 根据newCap新建一个Node数组用于初始化或扩容用
         @SuppressWarnings({"rawtypes","unchecked"})
         Node<K,V>[] newTab = (Node<K,V>[])new Node[newCap];
         table = newTab;
+        // 若旧哈希表有数据，此时扩容需要将旧哈希表的数据移动到（重新哈希定位）到新哈希表
+        // 若旧表无数据，说明是首次初始化，直接返回空数组即可
         if (oldTab != null) {
+            // 遍历旧哈希表，将旧哈希表的数据重新映射到新哈希表
             for (int j = 0; j < oldCap; ++j) {
                 Node<K,V> e;
+                // 若哈希表的桶元素不为空
                 if ((e = oldTab[j]) != null) {
                     oldTab[j] = null;
+                    // 【1】若该桶只有一个元素，此时直接将该元素的哈希值对新容量值取模找自己的坑位即可
                     if (e.next == null)
                         newTab[e.hash & (newCap - 1)] = e;
+                    // 【2】若桶中的元素节点属于TreeNode，说明该桶元素个数已经超过8个，已经成功晋级为红黑树。
                     else if (e instanceof TreeNode)
                         ((TreeNode<K,V>)e).split(this, newTab, j, oldCap);
+                    // 【3】否则，该桶存的元素节点就是一个链表
                     else { // preserve order
+                        /*
+                         * because we are using power-of-two expansion, the
+                         * elements from each bin must either stay at same index, or move
+                         * with a power of two offset in the new table.
+                         * 因为我们总是以2的倍数扩容，而定位到桶位置是根据元素节点的哈希值对容量取模的，
+                         * 因此扩容后，节点元素要么停留在原来的桶位置，要么就移动2的幂次方个位置即原来的位置
+                         * 加上oldCap作为新的桶位置。拿代码来说，重新映射的位置就两种情况：
+                         * 1）(e.hash & oldCap) == 0和2）(e.hash & oldCap) ！= 0；就问你，这是不是很巧妙，嘿嘿。
+                         * 这么说，可能很抽象，我们还是举个例子来说明：
+                         * 假如现在旧表容量为2，旧表中有两个元素，哈希值分别为3和5，此时这两个元素肯定都哈希冲突都定位到旧表1号桶位置，
+                         * 此时对旧表进行扩容，那么此时新表容量就为4，此时对这两个元素在新表重新取模定位桶位置，那么哈希值为3的元素此时
+                         * 会定位到新表的3号桶，即原来位置移动旧表容量大小位置即可即1+2；哈希值为5的元素会定位到新表的1号桶即跟旧表位置相同，
+                         * 桶位置保持不变。
+                         *
+                         * 因此，下面定义两个链表，一个是低位链（对应(e.hash & oldCap) == 0），
+                         * 一个是高位链（对应(e.hash & oldCap) ！= 0），在遍历原来的旧桶元素的过程中，
+                         * 遍历的元素节点根据这两种情况分别归到高位链或低位链中，最后再将高位链或低位链分别
+                         * 映射到新的哈希表相应位置。
+                         */
                         Node<K,V> loHead = null, loTail = null;
                         Node<K,V> hiHead = null, hiTail = null;
                         Node<K,V> next;
                         do {
                             next = e.next;
+                            // 【1】if ((e.hash & oldCap) == 0)，则属于低位链的情况，将旧表的元素归到低位链
                             if ((e.hash & oldCap) == 0) {
                                 if (loTail == null)
                                     loHead = e;
@@ -779,6 +823,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                                     loTail.next = e;
                                 loTail = e;
                             }
+                            // 【2】if ((e.hash & oldCap) != 0)，则属于高位链的情况，将旧表的元素归到高位链
                             else {
                                 if (hiTail == null)
                                     hiHead = e;
@@ -787,10 +832,12 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                                 hiTail = e;
                             }
                         } while ((e = next) != null);
+                        // 低位链在新的哈希表中的桶位置不变，因此直接归位即可
                         if (loTail != null) {
                             loTail.next = null;
                             newTab[j] = loHead;
                         }
+                        // 高位链在新的哈希表中的桶位置变为原来位置加上旧的容量大小，因此在新哈希表中移动旧的容量大小位置即可
                         if (hiTail != null) {
                             hiTail.next = null;
                             newTab[j + oldCap] = hiHead;
@@ -799,6 +846,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                 }
             }
         }
+
         return newTab;
     }
 
