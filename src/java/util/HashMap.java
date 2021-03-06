@@ -306,6 +306,8 @@ public class HashMap<K,V> extends AbstractMap<K,V>
         public final String toString() { return key + "=" + value; }
 
         public final int hashCode() {
+            // 注意，定位哈希表的桶位置并不是根据Node节点的哈希码来定位的哈，而是根据key的哈希码的低16位与高16位异或作为最终的哈希码来定位哈希表桶的位置。
+            // TODO 【QUESTION48】为何不用这个哈希值来定位哈希表桶的位置呢？
             return Objects.hashCode(key) ^ Objects.hashCode(value);
         }
 
@@ -348,6 +350,12 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      */
     static final int hash(Object key) {
         int h;
+        // 【QUESTION46】HashMap中是根据原生key的哈希码来直接定位哈希表桶的位置吗？
+        // 【ANSWER46】显然不是，是key哈希码的高16位与低16位的异或值作为最终的哈希码来定位哈希表桶的位置，
+        //            因为我们利用哈希码定位桶位置是取模即(n - 1) & hash，特别是哈希表比较小时，此时只有
+        //            哈希的低位参与到与运算中，因此肯定也希望哈希码的高位也参与到取模运算中，来增加随机性
+        //            及复杂性，从而减少哈希碰撞。又因为哈希码是int类型32位，作为权衡，因此把哈希码的高位
+        //            向右移动16位与低16位异或从而产生最终的桶的哈希码。
         return (key == null) ? 0 : (h = key.hashCode()) ^ (h >>> 16);
     }
 
@@ -406,6 +414,11 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      * necessary. When allocated, length is always a power of two.
      * (We also tolerate length zero in some operations to allow
      * bootstrapping mechanics that are currently not needed.)
+     */
+    /*
+        【QUESTION47】 table为何被声明为transient?
+        【ANSWER47】   1,table 多数情况下是无法被存满的，序列化未使用的部分，浪费空间
+                       2,同一个键值对在不同 JVM 下，所处的桶位置可能是不同的，在不同的 JVM 下反序列化 table 可能会发生错误。
      */
     transient Node<K,V>[] table;
 
@@ -902,6 +915,7 @@ public class HashMap<K,V> extends AbstractMap<K,V>
      */
     public V remove(Object key) {
         Node<K,V> e;
+        // 根据key移除某个元素，返回旧值
         return (e = removeNode(hash(key), key, null, false, true)) == null ?
                 null : e.value;
     }
@@ -919,16 +933,22 @@ public class HashMap<K,V> extends AbstractMap<K,V>
     final Node<K,V> removeNode(int hash, Object key, Object value,
                                boolean matchValue, boolean movable) {
         Node<K,V>[] tab; Node<K,V> p; int n, index;
+        // 移除元素的前提就是哈希表不为空且当前哈希码所在桶位置的节点元素不为空
         if ((tab = table) != null && (n = tab.length) > 0 &&
                 (p = tab[index = (n - 1) & hash]) != null) {
             Node<K,V> node = null, e; K k; V v;
+            // 【1】若桶的第一个元素就是要被删除的元素
             if (p.hash == hash &&
                     ((k = p.key) == key || (key != null && key.equals(k))))
                 node = p;
+            // 继续寻找该桶位置的下一个元素，并将下一个节点赋值给e
             else if ((e = p.next) != null) {
+                // 【2】如果该桶的节点元素已经晋级为红黑树，那么去红黑树里寻找待删除的节点元素
                 if (p instanceof TreeNode)
                     node = ((TreeNode<K,V>)p).getTreeNode(hash, key);
+                // 【3】若该桶的节点元素还是链表，那么就在该链表寻找待删除的节点元素
                 else {
+                    // 遍历链表，找到待删除的节点元素跳出while循环即可
                     do {
                         if (e.hash == hash &&
                                 ((k = e.key) == key ||
@@ -940,12 +960,16 @@ public class HashMap<K,V> extends AbstractMap<K,V>
                     } while ((e = e.next) != null);
                 }
             }
+            // 找到了待删除的节点元素
             if (node != null && (!matchValue || (v = node.value) == value ||
                     (value != null && value.equals(v)))) {
+                // 【1】若该节点属于TreeNode，那么去红黑树里将该节点删除了
                 if (node instanceof TreeNode)
                     ((TreeNode<K,V>)node).removeTreeNode(this, tab, movable);
+                // 【2】node == p，说明待删除的节点就是该桶的第一个元素
                 else if (node == p)
                     tab[index] = node.next;
+                // 【3】否则，待删除的节点就是该桶链表的非第一个元素
                 else
                     p.next = node.next;
                 ++modCount;
