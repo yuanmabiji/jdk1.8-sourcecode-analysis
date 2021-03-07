@@ -39,7 +39,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import sun.misc.Unsafe;
-
+// 文章推荐：
+// https://www.cnblogs.com/micrari/p/6937995.html
+// http://www.tianxiaobo.com/2018/05/01/AbstractQueuedSynchronizer-%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90-%E7%8B%AC%E5%8D%A0-%E5%85%B1%E4%BA%AB%E6%A8%A1%E5%BC%8F/
 /**
  * 【注意】
  *  1，tryLock即使在公平模式下也是非公平的，即只要锁没有任何线程获得的情况下，此时调用tryLock的这个线程闯进来会马上获得锁，而不顾那些正在队列等待的线程；
@@ -622,7 +624,41 @@ public abstract class AbstractQueuedSynchronizer
         // 若尾节点为null，说明该同步队列为空，还未入队过一个线程节点或（之前入队的全部线程节点已经出队 TODO 【QUESTION50】这种情况待确认）
         if (pred != null) {
             // 将入队的当前线程节点的prev指针指向尾节点
-            // TODO 【QUESTION49】 为何在if (compareAndSetTail(pred, node))条件前面就先将当前节点的前指针指向尾节点呢？
+            // TODO 【QUESTION49】 为何在if (compareAndSetTail(pred, node))条件前面就先将当前节点的前指针指向尾节点呢？难道避免在CPU切换的时候还能从后往前遍历？
+            // 下面的文字来自：http://www.tianxiaobo.com/2018/05/01/AbstractQueuedSynchronizer-%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90-%E7%8B%AC%E5%8D%A0-%E5%85%B1%E4%BA%AB%E6%A8%A1%E5%BC%8F/
+            /*
+             * 将节点插入队列尾部。这里是先将新节点的前驱设为尾节点，之后在尝试将新节点设为尾节
+             * 点，最后再将原尾节点的后继节点指向新的尾节点。除了这种方式，我们还先设置尾节点，
+             * 之后再设置前驱和后继，即：
+             *
+             *    if (compareAndSetTail(t, node)) {
+             *        node.prev = t;
+             *        t.next = node;
+             *    }
+             *
+             * 但但如果是这样做，会导致一个问题，即短时内，队列结构会遭到破坏。考虑这种情况，
+             * 某个线程在调用 compareAndSetTail(t, node)成功后，该线程被 CPU 切换了。此时
+             * 设置前驱和后继的代码还没带的及执行，但尾节点指针却设置成功，导致队列结构短时内会
+             * 出现如下情况：
+             *
+             *      +------+  prev +-----+       +-----+
+             * head |      | <---- |     |       |     |  tail
+             *      |      | ----> |     |       |     |
+             *      +------+ next  +-----+       +-----+
+             *
+             * tail 节点完全脱离了队列，这样导致一些队列遍历代码出错。如果先设置
+             * 前驱，在设置尾节点。及时线程被切换，队列结构短时可能如下：
+             *
+             *      +------+  prev +-----+ prev  +-----+
+             * head |      | <---- |     | <---- |     |  tail
+             *      |      | ----> |     |       |     |
+             *      +------+ next  +-----+       +-----+
+             *
+             * 这样并不会影响从后向前遍历，不会导致遍历逻辑出错。
+             *
+             * 参考：
+             *    https://www.cnblogs.com/micrari/p/6937995.html
+             */
             node.prev = pred;
             // 将入队的当前线程节点赋值给尾节点即若CAS成功的话，入队的当前线程节点将成为尾节点；若失败，那么继续调用下面的enq(node)方法继续这样的逻辑
             if (compareAndSetTail(pred, node)) {
@@ -671,7 +707,9 @@ public abstract class AbstractQueuedSynchronizer
          * fails or if status is changed by waiting thread.
          */
         int ws = node.waitStatus;
+        // TODO 【QUESTION51】 这里为何要将当前节点（一般是头节点）的ws置为0？仅仅是因为release方法中有个h.waitStatus != 0的if判断？
         if (ws < 0)
+            // TODO 【QUESTION52】 这里为何要CAS，而不能直接操作相应的域（node.waitStatus = 0）呢
             compareAndSetWaitStatus(node, ws, 0);
 
         /*
@@ -680,13 +718,32 @@ public abstract class AbstractQueuedSynchronizer
          * traverse backwards from tail to find the actual
          * non-cancelled successor.
          */
+        // 拿到当前节点的下一个节点
         Node s = node.next;
+        // 若下一个节点被取消了
         if (s == null || s.waitStatus > 0) {
             s = null;
+            // TODO 【QUESTION50】为何这里要从尾结点开始即从后往前遍历找到第一个未被取消的线程节点？虽然下面的答案有一定的道理，但是还未解决我的疑问，因为假如不是下面这种情况呢？
+            //                   如果从尾节点向前遍历，会不会存在前面很多未被取消的线程不能被唤醒？
+            // 下面的文字来自：http://www.tianxiaobo.com/2018/05/01/AbstractQueuedSynchronizer-%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90-%E7%8B%AC%E5%8D%A0-%E5%85%B1%E4%BA%AB%E6%A8%A1%E5%BC%8F/
+            /*
+             * 这里如果 s == null 处理，是不是表明 node 是尾节点？答案是不一定。原因之前在分析
+             * enq 方法时说过。这里再啰嗦一遍，新节点入队时，队列瞬时结构可能如下：
+             *                      node1         node2
+             *      +------+  prev +-----+ prev  +-----+
+             * head |      | <---- |     | <---- |     |  tail
+             *      |      | ----> |     |       |     |
+             *      +------+ next  +-----+       +-----+
+             *
+             * node2 节点为新入队节点，此时 tail 已经指向了它，但 node1 后继引用还未设置。
+             * 这里 node1 就是 node 参数，s = node1.next = null，但此时 node1 并不是尾
+             * 节点。所以这里不能从前向后遍历同步队列，应该从后向前。
+             */
             for (Node t = tail; t != null && t != node; t = t.prev)
                 if (t.waitStatus <= 0)
                     s = t;
         }
+        // 将当前节点的下一个线程节点的线程唤醒
         if (s != null)
             LockSupport.unpark(s.thread);
     }
@@ -772,12 +829,12 @@ public abstract class AbstractQueuedSynchronizer
         // Ignore if node doesn't exist
         if (node == null)
             return;
-
+        // 将当前节点的线程置为null
         node.thread = null;
 
         // Skip cancelled predecessors
         Node pred = node.prev;
-        // 从后往前找到第一个未取消的节点
+        // 从后往前找到第一个未取消的节点，注意有可能找到的是头节点
         while (pred.waitStatus > 0)
             node.prev = pred = pred.prev;
 
@@ -789,16 +846,24 @@ public abstract class AbstractQueuedSynchronizer
         // Can use unconditional write instead of CAS here.
         // After this atomic step, other Nodes can skip past us.
         // Before, we are free of interference from other threads.
-        // 将当前节点设置为CANCELLED
+        // 将当前节点的ws设置为CANCELLED
         node.waitStatus = Node.CANCELLED;
 
         // If we are the tail, remove ourselves.
+        // 如果当前抛出异常的线程对应节点是尾节点，那么将之前从后往前遍历找到的第一个未取消的pred线程节点设为尾节点即将当前线程节点移除
         if (node == tail && compareAndSetTail(node, pred)) {
+            // 同时将之前从后往前遍历找到的第一个未取消的pred线程节点的next指针置为null
             compareAndSetNext(pred, predNext, null);
+        // 如果当前抛出异常的线程对应节点不是尾节点，则说明其后的正在等待的线程节点需要被唤醒，此时又分两种情况：
+        // 【1】如果从后往前遍历第一个未被取消的pred线程节点不是头节点，且其ws为SIGNAL，此时将pred的next指针指向被取消的当前线程的下一个节点，此时不用唤醒，
+        //     因为前面还有正在阻塞的线程节点，还轮不到，而这个被取消的线程节点很可能是被中断唤醒的
+        // 【2】如果从后往前遍历第一个未被取消的pred线程节点是头节点，那么此时需要唤醒后一个线程节点，否则后一个线程节点可能会永远阻塞等待？
         } else {
             // If successor needs signal, try to set pred's next-link
             // so it will get one. Otherwise wake it up to propagate.
             int ws;
+            // 如果从后往前遍历第一个未被取消的pred线程节点不是头节点，且其ws为SIGNAL，此时将pred的next指针指向被取消的当前线程的下一个节点
+            // （此时这个节点是尾节点那么ws=0，如果不是，那么ws=-1）
             if (pred != head &&
                 ((ws = pred.waitStatus) == Node.SIGNAL ||
                  (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
@@ -806,11 +871,28 @@ public abstract class AbstractQueuedSynchronizer
                 Node next = node.next;
                 if (next != null && next.waitStatus <= 0)
                     compareAndSetNext(pred, predNext, next);
+            // 如果从后往前遍历第一个未被取消的pred线程节点是头节点，那么此时需要唤醒后一个线程节点，这个要唤醒的后一个线程节点即当前被取消的线程节点的下一个节点
             } else {
-                // 唤醒node节点的后续节点
+                // 唤醒node节点的后续节点，个人感觉这里是因为本来要被唤醒的当前节点被取消，此时所以需要唤醒下一个未被取消的节点，因为此时锁很可能被释放，再不唤醒同步队列阻塞的线程可能就没有其他线程来唤醒了
+                // 下面文字来源：http://www.tianxiaobo.com/2018/05/01/AbstractQueuedSynchronizer-%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90-%E7%8B%AC%E5%8D%A0-%E5%85%B1%E4%BA%AB%E6%A8%A1%E5%BC%8F/
+                /* TODO 【QUESTION54】感觉不存在下面这种情况，因为node2入队调用shouldParkAfterFailedAcquire方法时，会将ws>0的前一节点移除，直接插入到head节点后面，然后再自旋设置head节点的ws为-1.
+                 * 唤醒后继节点对应的线程。这里简单讲一下为什么要唤醒后继线程，考虑下面一种情况：
+                 *        head          node1         node2         tail
+                 *        ws=0          ws=1          ws=-1         ws=0
+                 *      +------+  prev +-----+  prev +-----+  prev +-----+
+                 *      |      | <---- |     | <---- |     | <---- |     |
+                 *      |      | ----> |     | ----> |     | ----> |     |
+                 *      +------+  next +-----+  next +-----+  next +-----+
+                 *
+                 * 头结点初始状态为 0，node1、node2 和 tail 节点依次入队。node1 自旋过程中调用
+                 * tryAcquire 出现异常，进入 cancelAcquire。head 节点此时等待状态仍然是 0，它
+                 * 会认为后继节点还在运行中，所它在释放同步状态后，不会去唤醒后继等待状态为非取消的
+                 * 节点 node2。如果 node1 再不唤醒 node2 的线程，该线程面临无法被唤醒的情况。此
+                 * 时，整个同步队列就回全部阻塞住。
+                 */
                 unparkSuccessor(node);
             }
-
+            // TODO 【QUESTION53】help gc 为何不是将node置为null呢？
             node.next = node; // help GCf
         }
     }
@@ -826,13 +908,14 @@ public abstract class AbstractQueuedSynchronizer
      */
     private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
         // 执行到这里，有三种情况：
-        // 【1】如果同步队列初始化时进入的第一个节点线程经过再次的“投胎”机会仍未获取到同步状态,此时pred即head节点，所以刚开始pred.waitStatus=0
-        // 【2】如果当前线程节点的前一个节点不是head节点，说明前面还有等待的线程，所以pred即前面等待的线程节点，此时pred.waitStatus=-1即SIGNAL
+        // 【1】如果同步队列初始化时进入的第一个节点线程经过再次的“投胎”机会仍未获取到同步状态,此时pred即head节点，所以刚开始pred.waitStatus=0,后面才被置为SIGNAL(-1)
+        // 【2】如果当前线程节点的前一个节点不是head节点，说明前面还有等待的线程，所以pred即前面等待的线程节点，此时刚开始pred.waitStatus=0，后面才被置为SIGNAL(-1)
+        // 【总结】尾节点的ws一开始总是0，后面才被置为-1，然后for循环再次进入该方法返回true将该线程节点阻塞
         // 【3】已经处在同步队列中的第一个节点线程被唤醒后，会经过自旋，会再次获取锁，但仍未获取到同步状态，此时pred即head节点，所以刚开始pred.waitStatus=-1即SIGNAL
         int ws = pred.waitStatus;
         // 1) pred.waitStatus == -1
         // 【1.2】在【1.1】步设置head节点pred的ws为SIGNAL后，退出shouldParkAfterFailedAcquire并返回false，
-        // 然后该线程节点仍未获取到同步状态此时再次进入该方法时，此时head节点的ws就为SIGNAL,因此返回true，让该线程节点park阻塞即可
+        //        然后该线程节点仍未获取到同步状态此时再次进入该方法时，此时head节点的ws就为SIGNAL,因此返回true，让该线程节点park阻塞即可
         if (ws == Node.SIGNAL)
             /*
              * This node has already set status asking a release
@@ -840,6 +923,7 @@ public abstract class AbstractQueuedSynchronizer
              */
             return true;
         // 2) pred.waitStatus > 0 即 pred.waitStatus == Node.CANCELLED(1)
+        // 若pred线程节点被取消，此时从pred节点开始向前遍历找到未取消的节点并把当前节点查到该未取消的节点后面
         if (ws > 0) {
             /*
              * Predecessor was cancelled. Skip over predecessors and
@@ -929,18 +1013,20 @@ public abstract class AbstractQueuedSynchronizer
                 }
                 // 执行到这里，有三种情况：
                 // 【1】如果同步队列初始化时进入的第一个节点线程经过再次的“投胎”机会仍未获取到同步状态；
-                // 【2】如果当前线程节点的前一个节点不是head节点，说明前面还有等待的线程；
-                // 【3】已经处在同步队列中的第一个节点线程被唤醒后0，会经过自旋，会再次获取锁，但仍未获取到同步状态。
+                // 【2】如果当前线程节点的前一个节点不是head节点，说明前面还有等待的线程，此时当前线程节点要么不是第一个进入同步队列的要么就是处在同步队列中的线程节点被中断醒来的// 【3】已经处在同步队列中的第一个节点线程被唤醒后0，会经过自旋，会再次获取锁，但仍未获取到同步状态。
                 //  基于以上三种情况，此时获取同步状态失败后的线程节点需要将自己park阻塞住
-                // TODO 【Question1】假如park的线程被唤醒后，acquireQueued的执行逻辑是怎样的？
+                // 【QUESTION1】假如park的线程被唤醒后，acquireQueued的执行逻辑是怎样的？
+                // 【ANSWER1】1）如果唤醒的是同步队列中的第一个线程节点，此时其前节点就是head头节点，因此再次进入for循环去获取同步状态；
+                //           2）如果唤醒的不是同步队列中的第一个线程节点（可能是被中断唤醒的），此时会继续park阻塞。
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
                     // 执行到这里，说明正在parking阻塞的线程被中断从而被唤醒，因此设置interrupted为true，因为parkAndCheckInterrupt将中断标识清除了，所以后续该线程需要自我interrupt一下
                     interrupted = true;
             }
         } finally {
-            // 能执行到这里，说明前面try代码段抛出了一个异常
+            // 若failed仍为true的话，说明前面try代码段抛出了一个异常,这里很可能是tryAcquire方法抛出异常，因为tryAcquire方法是留给子类实现的难免有异常
             if (failed)
+                // 抛出异常后，需要取消获取同步状态同时将已经入队的当前线程节点移除，根据情况看是否需要唤醒下一个线程节点，当然，移除会继续向上抛出
                 cancelAcquire(node);
         }
     }
@@ -1334,8 +1420,24 @@ public abstract class AbstractQueuedSynchronizer
      * @return the value returned from {@link #tryRelease}
      */
     public final boolean release(int arg) {
+        // 【1】首先通过tryRelease释放同步状态，注意tryXxx方法是留给子类实现的
         if (tryRelease(arg)) {
+            // 【2】若成功释放同步状态，那么将唤醒head头节点的下一个节点
             Node h = head;
+            // 下面的文字来自：http://www.tianxiaobo.com/2018/05/01/AbstractQueuedSynchronizer-%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90-%E7%8B%AC%E5%8D%A0-%E5%85%B1%E4%BA%AB%E6%A8%A1%E5%BC%8F/
+            /*
+             * 这里简单列举条件分支的可能性，如下：
+             * 1. head = null
+             *     head 还未初始化。初始情况下，head = null，当第一个节点入队后，head 会被初始
+             *     为一个虚拟（dummy）节点。这里，如果还没节点入队就调用 release 释放同步状态，
+             *     就会出现 h = null 的情况。
+             *
+             * 2. head != null && waitStatus = 0
+             *     表明后继节点对应的线程仍在运行中，不需要唤醒
+             *
+             * 3. head != null && waitStatus < 0
+             *     后继节点对应的线程可能被阻塞了，需要唤醒
+             */
             if (h != null && h.waitStatus != 0)
                 unparkSuccessor(h);
             return true;
