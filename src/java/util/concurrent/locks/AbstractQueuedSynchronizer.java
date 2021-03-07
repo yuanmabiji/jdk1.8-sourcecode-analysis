@@ -585,11 +585,16 @@ public abstract class AbstractQueuedSynchronizer
      * @return node's predecessor
      */
     private Node enq(final Node node) {
+        // 自旋
         for (;;) {
+            // 同样，先拿到尾节点
             Node t = tail;
+            // 如果尾节点为null，此时执行初始化，即新建一个Node节点作为头节点，并把tail尾节点指向head头节点
             if (t == null) { // Must initialize
                 if (compareAndSetHead(new Node()))
                     tail = head;
+            // 如果尾节点不为空，说明已经初始化过（注意若是首次初始化，也会经过自旋的方式进入该else分支），
+            // 此时通过自旋+CAS的方式重新执行入队操作
             } else {
                 node.prev = t;
                 if (compareAndSetTail(t, node)) {
@@ -607,16 +612,27 @@ public abstract class AbstractQueuedSynchronizer
      * @return the new node
      */
     private Node addWaiter(Node mode) {
+        // 将入队的当前线程封装为Node节点，mode为Node.EXCLUSIVE或Node.SHARED
         Node node = new Node(Thread.currentThread(), mode);
         // Try the fast path of enq; backup to full enq on failure
+        // 先尝试下快速入队，若失败，则调用end(node)方法通过自旋+CAS的方式入队
+        // 取得同步队列的尾节点
         Node pred = tail;
+        // 若尾节点不为null，说明不是入队的第一个节点，同步队列已经初始化过，此时尝试快速入队即将当前线程节点插入到同步队列尾部
+        // 若尾节点为null，说明该同步队列为空，还未入队过一个线程节点或（之前入队的全部线程节点已经出队 TODO 【QUESTION50】这种情况待确认）
         if (pred != null) {
+            // 将入队的当前线程节点的prev指针指向尾节点
+            // TODO 【QUESTION49】 为何在if (compareAndSetTail(pred, node))条件前面就先将当前节点的前指针指向尾节点呢？
             node.prev = pred;
+            // 将入队的当前线程节点赋值给尾节点即若CAS成功的话，入队的当前线程节点将成为尾节点；若失败，那么继续调用下面的enq(node)方法继续这样的逻辑
             if (compareAndSetTail(pred, node)) {
+                // 执行到这里，说明CAS成功了，此时将原来尾节点的next指针指向当前入队的线程节点并返回当前节点
                 pred.next = node;
                 return node;
             }
         }
+        // 执行到这里，说明有两种情况：1）同步队列还未初始化为空；2）前面的CAS操作即if (compareAndSetTail(pred, node))操作失败
+        // 此时继续将当前节点入队
         enq(node);
         return node;
     }
@@ -629,9 +645,14 @@ public abstract class AbstractQueuedSynchronizer
      * @param node the node
      */
     private void setHead(Node node) {
+        // 将当前节点设置为头结点
         head = node;
+        // 当前节点持有的线程置为null
         node.thread = null;
+        // 当前节点的prev指针置为null
         node.prev = null;
+        // 因为当前节点的nextWaiter指向的是Node.EXCLUDE，而Node.EXCLUDE实质就是null，因此不需要做node.nextWaiter=null的操作
+        // 因为当前节点的next指针的节点可能仍需要等待，此时也不需要做node.next = null的操作
     }
 
     /**
@@ -804,13 +825,21 @@ public abstract class AbstractQueuedSynchronizer
      * @return {@code true} if thread should block
      */
     private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
+        // 执行到这里，有三种情况：
+        // 【1】如果同步队列初始化时进入的第一个节点线程经过再次的“投胎”机会仍未获取到同步状态,此时pred即head节点，所以刚开始pred.waitStatus=0
+        // 【2】如果当前线程节点的前一个节点不是head节点，说明前面还有等待的线程，所以pred即前面等待的线程节点，此时pred.waitStatus=-1即SIGNAL
+        // 【3】已经处在同步队列中的第一个节点线程被唤醒后，会经过自旋，会再次获取锁，但仍未获取到同步状态，此时pred即head节点，所以刚开始pred.waitStatus=-1即SIGNAL
         int ws = pred.waitStatus;
+        // 1) pred.waitStatus == -1
+        // 【1.2】在【1.1】步设置head节点pred的ws为SIGNAL后，退出shouldParkAfterFailedAcquire并返回false，
+        // 然后该线程节点仍未获取到同步状态此时再次进入该方法时，此时head节点的ws就为SIGNAL,因此返回true，让该线程节点park阻塞即可
         if (ws == Node.SIGNAL)
             /*
              * This node has already set status asking a release
              * to signal it, so it can safely park.
              */
             return true;
+        // 2) pred.waitStatus > 0 即 pred.waitStatus == Node.CANCELLED(1)
         if (ws > 0) {
             /*
              * Predecessor was cancelled. Skip over predecessors and
@@ -820,12 +849,14 @@ public abstract class AbstractQueuedSynchronizer
                 node.prev = pred = pred.prev;
             } while (pred.waitStatus > 0);
             pred.next = node;
+        // 3) pred.waitStatus == 0 or Node.PROPAGATE(-3),TODO 注意为何这里肯定不是Node.CONDITION（-2）
         } else {
             /*
              * waitStatus must be 0 or PROPAGATE.  Indicate that we
              * need a signal, but don't park yet.  Caller will need to
              * retry to make sure it cannot acquire before parking.
              */
+            // 【1.1】这个步骤接前面【1】的情况，此时pred是head节点，此时将head节点pred的ws置为SIGNAL状态，说明下一个节点需要阻塞等待被SIGNAL
             compareAndSetWaitStatus(pred, ws, Node.SIGNAL);
         }
         return false;
@@ -844,7 +875,10 @@ public abstract class AbstractQueuedSynchronizer
      * @return {@code true} if interrupted
      */
     private final boolean parkAndCheckInterrupt() {
+        // 最终将未能获取到同步状态的线程阻塞住
         LockSupport.park(this);
+        // 执行到这里，说明正在park阻塞的线程被unpark（正常release唤醒）或被中断了
+        // 因此调用Thread.interrupted()区分该parking的线程是被正常唤醒还是被中断，若被中断，中断标识将被清除
         return Thread.interrupted();
     }
 
@@ -866,20 +900,42 @@ public abstract class AbstractQueuedSynchronizer
      * @return {@code true} if interrupted while waiting
      */
     final boolean acquireQueued(final Node node, int arg) {
+        // 能进入到该方法，说明该线程节点已经进入同步队列了，但是还未park阻塞
+        // failed失败标志：若抛出异常，那么该值保持不变为true
         boolean failed = true;
         try {
+            // 中断标志
             boolean interrupted = false;
+            // 自旋
             for (;;) {
+                // 拿到当前节点的前一个节点
                 final Node p = node.predecessor();
+                // 如果当前线程节点的前一个节点是head节点，那么在此调用tryAcquire方法看能否再次获取到同步状态，基于下面两种情况考虑：
+                // 【1】因为在当前线程在进入同步队列的时候说不定同步状态(锁)已经被别的线程释放，这里再作一次努力，
+                //      而不是简单粗暴的将该线程park阻塞住哈，因此再给当前线程节点（即同步队列第一个线程节点）一次“投胎”的机会；
+                //      其实是两次，还有一次就是调用shouldParkAfterFailedAcquire方法将头节点的ws设置为SIGNAL后返回false，此时自旋再次执行if分支
+                // 【2】如果正在同步队列park阻塞的第一个线程被唤醒后，也会进入该if分支去尝试获取锁
+                // 这里判断当前线程的前一节点是否为头结点还有一个好处就是加入同步队列中的非第一个线程节点被中断唤醒后，判断到其前一线程节点不是头节点而是同样正在等待的线程节点，
+                // 此时该线程会继续进入等待状态，否则会破坏同步队列的链表结构导致该线程节点前面正在等待的线程永远无法被唤醒了。
                 if (p == head && tryAcquire(arg)) {
+                    // 很幸运，当前线程虽然已经进入同步队列了，但由于同时别的线程释放了同步状态（锁），因此当前线程又再一次获得了同步状态
+                    // 此时将当前节点设置为头结点
                     setHead(node);
                     p.next = null; // help GC
+                    // 标志failed为false即获取同步状态成功
                     failed = false;
+                    // 返回中断标志，默认是false
                     return interrupted;
                 }
+                // 执行到这里，有三种情况：
+                // 【1】如果同步队列初始化时进入的第一个节点线程经过再次的“投胎”机会仍未获取到同步状态；
+                // 【2】如果当前线程节点的前一个节点不是head节点，说明前面还有等待的线程；
+                // 【3】已经处在同步队列中的第一个节点线程被唤醒后0，会经过自旋，会再次获取锁，但仍未获取到同步状态。
+                //  基于以上三种情况，此时获取同步状态失败后的线程节点需要将自己park阻塞住
                 // TODO 【Question1】假如park的线程被唤醒后，acquireQueued的执行逻辑是怎样的？
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
+                    // 执行到这里，说明正在parking阻塞的线程被中断从而被唤醒，因此设置interrupted为true，因为parkAndCheckInterrupt将中断标识清除了，所以后续该线程需要自我interrupt一下
                     interrupted = true;
             }
         } finally {
@@ -1210,8 +1266,13 @@ public abstract class AbstractQueuedSynchronizer
      *        can represent anything you like.
      */
     public final void acquire(int arg) {
+        // 【1】首先调用子类重写的tryAcquire方法看能否获取到同步状态（可以理解为锁），若获取到同步状态则马上返回；否则该线程被封装为Node节点进入同步队列
         if (!tryAcquire(arg) &&
-            acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+            // 【3】 将当前线程 TODO 继续完善注释
+            acquireQueued(
+                // 【2】执行到这里，说明该线程没能获取到同步状态，此时现将该线程进入同步队列，此时只是单纯的进入了同步队列的链表，还未park阻塞哈
+                addWaiter(Node.EXCLUSIVE), arg))
+            // 执行到这里，说明当前线程在同步队列中曾经被interrupt了，此时需要自我interrupt下，搞个中断标识
             selfInterrupt();
     }
 

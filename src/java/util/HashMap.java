@@ -307,7 +307,9 @@ public class HashMap<K,V> extends AbstractMap<K,V>
 
         public final int hashCode() {
             // 注意，定位哈希表的桶位置并不是根据Node节点的哈希码来定位的哈，而是根据key的哈希码的低16位与高16位异或作为最终的哈希码来定位哈希表桶的位置。
-            // TODO 【QUESTION48】为何不用这个哈希值来定位哈希表桶的位置呢？
+            // 【QUESTION48】为何不用这个哈希值来定位哈希表桶的位置呢？
+            // 【ANSWER48】如果用Node的哈希值来定位哈希桶的位置，此时肯定会出错。为什么呢？因为Node的哈希码有key和value的哈希码异或而来，
+            //            此时如果key的哈希码不变，而值改变了，此时Node的哈希码也改变了，此时就不能根据key的哈希码来定位到原来的桶位置了。
             return Objects.hashCode(key) ^ Objects.hashCode(value);
         }
 
