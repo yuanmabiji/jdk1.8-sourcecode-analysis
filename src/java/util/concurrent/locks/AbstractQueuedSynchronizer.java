@@ -753,6 +753,7 @@ public abstract class AbstractQueuedSynchronizer
      * propagation. (Note: For exclusive mode, release just amounts
      * to calling unparkSuccessor of head if it needs signal.)
      */
+    // 【注意】这是一个并发调用的方法，在releaseShared、acquireShared都会调用该方法。
     private void doReleaseShared() {
         /*
          * Ensure that a release propagates, even if there are other
@@ -788,6 +789,7 @@ public abstract class AbstractQueuedSynchronizer
                 // TODO 【QUESTION57】 如果这里将头结点的ws置为SIGNAL是不是也可以？因为SIGNAL也是小于0，符合setHeadAndPropagate方法判断if条件的ws < 0的条件，如果不可以会有什么后果？有空再分析这种情况
                 // TODO 【QUESTION60】 这里JDK曾经有个bug，设置 Node.PROPAGATE是好像是后面才添加的，
                 //                    参考：https://bugs.java.com/bugdatabase/view_bug.do?bug_id=6801020
+                // 【重要】节点的的PROPAGATE在这里设置，目的是为了解决并发释放的时候后继节点无法被唤醒的问题。注意，共享状态下的前继节点ws正常情况下也是SIGNAL哈。
                 else if (ws == 0 &&
                          !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
                     continue;                // loop on failed CAS
