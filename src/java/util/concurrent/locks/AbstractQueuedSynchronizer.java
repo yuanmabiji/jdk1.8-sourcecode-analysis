@@ -785,7 +785,7 @@ public abstract class AbstractQueuedSynchronizer
                 // 同步状态，此时恰好执行到这里，判断头结点的ws为0后什么都不做而是直接退出的话，假如此时那个刚闯进来的线程获取到共享的同步状态，此时共享的同步状态已为0，
                 // 当其再调用setHeadAndPropagate方法判断if条件时，此时同步状态为0不满足propagate > 0的条件，此时ws=0又不满足ws < 0的条件，此时该闯进来的线程就无法唤醒其后继的
                 // 线程节点了（假如同时又有其他并发的线程入队！）。
-                // TODO 【QUESTION57】 如果这里将头结点的ws置为SIGNAL是不是也可以？因为SIGNAL也是小于0，符合setHeadAndPropagate方法判断if条件的ws < 0的条件，如果不可以会有什么后果？
+                // TODO 【QUESTION57】 如果这里将头结点的ws置为SIGNAL是不是也可以？因为SIGNAL也是小于0，符合setHeadAndPropagate方法判断if条件的ws < 0的条件，如果不可以会有什么后果？有空再分析这种情况
                 else if (ws == 0 &&
                          !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
                     continue;                // loop on failed CAS
@@ -806,6 +806,7 @@ public abstract class AbstractQueuedSynchronizer
      */
     private void setHeadAndPropagate(Node node, int propagate) {
         Node h = head; // Record old head for check below
+        // 将当前线程节点设置为头结点。
         setHead(node);
         /*
          * Try to signal next queued node if:
@@ -823,20 +824,28 @@ public abstract class AbstractQueuedSynchronizer
          * racing acquires/releases, so most need signals now or soon
          * anyway.
          */
+        // 首先这里需要明确两点：
+        // 【1】在共享的同步状态仍大于0的情况下，唤醒同步队列的非第一个节点线程不是由已获取到同步状态的线程release时来唤醒的，而是由其前一节点，而已获取到同步状态的线程release时来仅仅唤醒同步队列中的第一个线程哈；
+        // 【2】某个已获取到同步状态的线程release的最终结果并非唤醒所有同步队列中的线程，而是根据目前已有的同步状态数量来决定唤醒多少个，这样就减少了竞争，否则动不动就将所有同步队列的线程唤醒，此时只有一个同步状态呢？
+        //     此时岂不是大量线程竞争这个仅有的一个同步状态，而导致大量无畏的竞争呢？
         // 这个propagate参数即之前tryAcquireShared方法返回的参数，此时propagate又有三种情况：
         // 1）propagate>0；2）propagate=0；3）propagate<0
         // 【1】对于1）propagate>0的情况：举个例子比如Semaphore只要获取完后还有信号量或CountDownLatch已经countDown完的情况，此时propagate>0，
         //     对于Semaphore，此时信号量大于0说明地主家还有余粮，此时需要唤醒更多同步队列中的线程去获取信号量；
         //     对于CountDownLatch，此时count已经为0了，说明所有同步队列的线程都符合条件了，自然要唤醒更多的同步队列中的线程了
-        //     或许这里大家有个疑问，获取到共享的同步状态的线程在release时不是会唤醒同步队列中阻塞的线程节点么？为啥这里获取共享的同步状态的第一个线程也需要根据条件来唤醒其他线程呢？
-        //     因为一个线程release唤醒后继节点是根据前继节点的SIGNAL状态来决定的，大家想一下，是不是有这么一种可能，当一个线程正在release时，此时另一个未能获取到同步状态的的线程已经
-        //     进入同步队列，但是还未更改Head头结点的ws为SIGNAL,即此时头节点的ws仍为0，此时负责release唤醒的线程发现头节点的ws为0，自然不会执行唤醒后继线程了。在这种情况下，所以当前线程
-        //     在获取共享同步状态的同时只要地主家有余粮，此时同样需要执行唤醒后继节点的逻辑。
-        //     此外，在这种情况下， 负责release唤醒后继节点的线程此时就需要将头结点的ws设置为PROPAGATE(-2),
+        //     ==》因为这里的功能本身就是根据同步状态由多少，就唤醒多少个同步队列中的线程。
+
+        //     或许这里大家有个疑问，这里除了判断propagate > 0外，为啥还要判断h.waitStatus < 0小于0的情况呢？
+        //     这个答案已经在doReleaseShared方法中的注释中解答。
+        // TODO 【QUESTION58】 (h = head) == null || h.waitStatus < 0)又是属于哪种情况呢？
         if (propagate > 0 || h == null || h.waitStatus < 0 ||
             (h = head) == null || h.waitStatus < 0) {
+            // 若当前线程是同步队列中的第一个线程，被release的线程唤醒了，此时当前线程获取到同步状态，因此调用了setHeadAndPropagate方法将当前线程节点设置为头结点后，
+            // 判断共享的同步状态仍大于0即propagate > 0（说明同时有其他线程release了同步状态）或waitStatus < 0 ，此时继续唤醒当前节点的下一个线程。
             Node s = node.next;
+            // TODO 【QUESTION59】s == null又是属于哪种情况？
             if (s == null || s.isShared())
+                // 【注意】执行到这里，说明当前节点已经变成了头节点，然后调用doReleaseShared方法中的unparkSuccessor(h)时拿到头结点的下一个节点即当前节点的下一个节点哈
                 doReleaseShared();
         }
     }
@@ -1125,6 +1134,7 @@ public abstract class AbstractQueuedSynchronizer
      * Acquires in shared uninterruptible mode.
      * @param arg the acquire argument
      */
+    // 这个doAcquireShared方法的逻辑跟acquireQueued方法逻辑差不多，最大的区别就是唤醒的后继节点在满足条件的情况下，需要继续唤醒其后的节点
     private void doAcquireShared(int arg) {
         // 将当前线程以共享节点类型入同步队列，Node.SHARED保存在Node节点的nextWaiter这个属性里
         final Node node = addWaiter(Node.SHARED);
