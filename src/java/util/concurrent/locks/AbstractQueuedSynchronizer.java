@@ -769,15 +769,28 @@ public abstract class AbstractQueuedSynchronizer
             Node h = head;
             if (h != null && h != tail) {
                 int ws = h.waitStatus;
+                // 如果头节点ws为SIGNAL，说明需要唤醒后继节点
                 if (ws == Node.SIGNAL) {
+                    // 将头节点的ws置为0，说明后继节点正在运行了（没有阻塞了）
                     if (!compareAndSetWaitStatus(h, Node.SIGNAL, 0))
                         continue;            // loop to recheck cases
+                    // 唤醒后继节点
                     unparkSuccessor(h);
                 }
+                // 如果此时头结点ws为0，说明其后继节点要么是刚入队的第一个节点还没来得及将头结点的ws置为SIGNAL，要么就是同步队列中的第一个线程节点刚被唤醒，此时ws也为0
+                // 因此，在这种情况下，需要设置头节点的ws为PROPAGATE，以便在同步队列中的第一个线程被唤醒且该线程（或该线程是刚闯进来的线程但头节点的ws为0的情况）
+                // 获取到共享的同步状态后进入setHeadAndPropagate时，此时在if分支有 head.ws < 0的判断，此时即可以保证唤醒头节点的下下个线程，否则可能无法唤醒唤醒头节点的下下个线程
+                // 及其该节点后的同步队列的其他线程。对于这种情况，我再举例说明下：在并发下，有两个线程，一个是获取到共享同步状态的线程，假如此时共享的同步状态为0了，
+                // 另一个是刚闯入同步队列的第一个线程，此时头节点的ws还未来的及设置为SIGNAL即头结点的ws为0.与此同时，手中拥有共享同步状态的线程此时突然调用release来释放手中的
+                // 同步状态，此时恰好执行到这里，判断头结点的ws为0后什么都不做而是直接退出的话，假如此时那个刚闯进来的线程获取到共享的同步状态，此时共享的同步状态已为0，
+                // 当其再调用setHeadAndPropagate方法判断if条件时，此时同步状态为0不满足propagate > 0的条件，此时ws=0又不满足ws < 0的条件，此时该闯进来的线程就无法唤醒其后继的
+                // 线程节点了（假如同时又有其他并发的线程入队！）。
+                // TODO 【QUESTION57】 如果这里将头结点的ws置为SIGNAL是不是也可以？因为SIGNAL也是小于0，符合setHeadAndPropagate方法判断if条件的ws < 0的条件，如果不可以会有什么后果？
                 else if (ws == 0 &&
                          !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
                     continue;                // loop on failed CAS
             }
+            // 若头节点未变，说明还是当年的那个头结点，在唤醒后继线程后未发生改变，此时负责release的线程使命已经完成，直接退出for循环即可
             if (h == head)                   // loop if head changed
                 break;
         }
@@ -810,6 +823,16 @@ public abstract class AbstractQueuedSynchronizer
          * racing acquires/releases, so most need signals now or soon
          * anyway.
          */
+        // 这个propagate参数即之前tryAcquireShared方法返回的参数，此时propagate又有三种情况：
+        // 1）propagate>0；2）propagate=0；3）propagate<0
+        // 【1】对于1）propagate>0的情况：举个例子比如Semaphore只要获取完后还有信号量或CountDownLatch已经countDown完的情况，此时propagate>0，
+        //     对于Semaphore，此时信号量大于0说明地主家还有余粮，此时需要唤醒更多同步队列中的线程去获取信号量；
+        //     对于CountDownLatch，此时count已经为0了，说明所有同步队列的线程都符合条件了，自然要唤醒更多的同步队列中的线程了
+        //     或许这里大家有个疑问，获取到共享的同步状态的线程在release时不是会唤醒同步队列中阻塞的线程节点么？为啥这里获取共享的同步状态的第一个线程也需要根据条件来唤醒其他线程呢？
+        //     因为一个线程release唤醒后继节点是根据前继节点的SIGNAL状态来决定的，大家想一下，是不是有这么一种可能，当一个线程正在release时，此时另一个未能获取到同步状态的的线程已经
+        //     进入同步队列，但是还未更改Head头结点的ws为SIGNAL,即此时头节点的ws仍为0，此时负责release唤醒的线程发现头节点的ws为0，自然不会执行唤醒后继线程了。在这种情况下，所以当前线程
+        //     在获取共享同步状态的同时只要地主家有余粮，此时同样需要执行唤醒后继节点的逻辑。
+        //     此外，在这种情况下， 负责release唤醒后继节点的线程此时就需要将头结点的ws设置为PROPAGATE(-2),
         if (propagate > 0 || h == null || h.waitStatus < 0 ||
             (h = head) == null || h.waitStatus < 0) {
             Node s = node.next;
@@ -1103,14 +1126,21 @@ public abstract class AbstractQueuedSynchronizer
      * @param arg the acquire argument
      */
     private void doAcquireShared(int arg) {
+        // 将当前线程以共享节点类型入同步队列，Node.SHARED保存在Node节点的nextWaiter这个属性里
         final Node node = addWaiter(Node.SHARED);
         boolean failed = true;
         try {
             boolean interrupted = false;
             for (;;) {
+                // 获取到当前节点的前继节点
                 final Node p = node.predecessor();
+                // 若前继节点是头节点，说明自己是同步队列中的第一个线程节点，不管是新入队的还是被唤醒的；
+                // 【1】如果当前节点是新入队的第一个线程节点，若还没调用shouldParkAfterFailedAcquire方法，此时head头节点的ws为0；若已经调用shouldParkAfterFailedAcquire方法，那么此时head头节点的ws为-1；
+                // 【2】如果当前节点是被唤醒的同步队列的第一个线程节点，此时head头节点的ws为-1。
                 if (p == head) {
+                    // 那么此时再次尝试调用tryAcquireShared看能否获取共享的同步状态，若成功，则返回的r>=0；否则r<0；
                     int r = tryAcquireShared(arg);
+                    // 若获取共享状态成功，此时需要重新设置头节点，并保证传播
                     if (r >= 0) {
                         setHeadAndPropagate(node, r);
                         p.next = null; // help GC
@@ -1457,7 +1487,12 @@ public abstract class AbstractQueuedSynchronizer
      *        and can represent anything you like.
      */
     public final void acquireShared(int arg) {
+        // 这里tryAcquireShared将返回一个int值，有三种情况：
+        // 【1】如果返回值小于0，说明获取到共享的同步状态失败；
+        // 【2】如果返回值等于0，说明获取共享的同步状态成功，但后续的线程将获取共享的同步状态失败；
+        // 【3】如果返回值大于0，说明获取共享的同步状态成功，后续的线程依然能获取到共享的同步状态直到返回值为0
         if (tryAcquireShared(arg) < 0)
+            // 执行到这里，说明当前线程获取到共享的同步状态失败，此时可能需要进入同步队列park阻塞等待
             doAcquireShared(arg);
     }
 
@@ -1516,8 +1551,12 @@ public abstract class AbstractQueuedSynchronizer
      * @return the value returned from {@link #tryReleaseShared}
      */
     public final boolean releaseShared(int arg) {
+        // 尝试释放手中的共享同步状态，对于CountDownLatch的话，当count减为0的时候返回true，对于Semaphore的话，只要能将手中的信号量释放即返回true。
         if (tryReleaseShared(arg)) {
+            // 成功释放了手中的共享同步状态，此时需要唤醒后继节点，然后再由唤醒的后继线程节点负责唤醒其后继节点，而不是由成功释放共享同步状态的
+            // 当前线程负责唤醒同步队列中的所有线程节点后再返回【这是值得注意的地方】
             doReleaseShared();
+            // 唤醒同步队列中的第一个线程节点后，当前线程立即返回true给调用方
             return true;
         }
         return false;
