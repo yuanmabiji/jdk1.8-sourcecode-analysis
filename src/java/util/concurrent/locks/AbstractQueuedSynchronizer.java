@@ -786,6 +786,8 @@ public abstract class AbstractQueuedSynchronizer
                 // 当其再调用setHeadAndPropagate方法判断if条件时，此时同步状态为0不满足propagate > 0的条件，此时ws=0又不满足ws < 0的条件，此时该闯进来的线程就无法唤醒其后继的
                 // 线程节点了（假如同时又有其他并发的线程入队！）。
                 // TODO 【QUESTION57】 如果这里将头结点的ws置为SIGNAL是不是也可以？因为SIGNAL也是小于0，符合setHeadAndPropagate方法判断if条件的ws < 0的条件，如果不可以会有什么后果？有空再分析这种情况
+                // TODO 【QUESTION60】 这里JDK曾经有个bug，设置 Node.PROPAGATE是好像是后面才添加的，
+                //                    参考：https://bugs.java.com/bugdatabase/view_bug.do?bug_id=6801020
                 else if (ws == 0 &&
                          !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
                     continue;                // loop on failed CAS
@@ -838,6 +840,7 @@ public abstract class AbstractQueuedSynchronizer
         //     或许这里大家有个疑问，这里除了判断propagate > 0外，为啥还要判断h.waitStatus < 0小于0的情况呢？
         //     这个答案已经在doReleaseShared方法中的注释中解答。
         // TODO 【QUESTION58】 (h = head) == null || h.waitStatus < 0)又是属于哪种情况呢？
+
         if (propagate > 0 || h == null || h.waitStatus < 0 ||
             (h = head) == null || h.waitStatus < 0) {
             // 若当前线程是同步队列中的第一个线程，被release的线程唤醒了，此时当前线程获取到同步状态，因此调用了setHeadAndPropagate方法将当前线程节点设置为头结点后，
