@@ -292,8 +292,8 @@ import sun.misc.Unsafe;
  * @author Doug Lea
  */
 public abstract class AbstractQueuedSynchronizer
-    extends AbstractOwnableSynchronizer
-    implements java.io.Serializable {
+        extends AbstractOwnableSynchronizer
+        implements java.io.Serializable {
 
     private static final long serialVersionUID = 7373984972572414691L;
 
@@ -409,21 +409,21 @@ public abstract class AbstractQueuedSynchronizer
          *               cancels. To avoid races, acquire methods must
          *               first indicate they need a signal,
          *               then retry the atomic acquire, and then,
-         *               on failure, block.
+         *               on failure, block. 该状态设置在当前节点的前驱节点，作用于当前节点
          *   CANCELLED:  This node is cancelled due to timeout or interrupt.
          *               Nodes never leave this state. In particular,
-         *               a thread with cancelled node never again blocks.
+         *               a thread with cancelled node never again blocks.该状态设置在当前节点，作用域当前节点
          *   CONDITION:  This node is currently on a condition queue.
          *               It will not be used as a sync queue node
          *               until transferred, at which time the status
          *               will be set to 0. (Use of this value here has
          *               nothing to do with the other uses of the
-         *               field, but simplifies mechanics.)
+         *               field, but simplifies mechanics.) 该状态设置在当前节点，作用域当前节点
          *   PROPAGATE:  A releaseShared should be propagated to other
          *               nodes. This is set (for head node only) in
          *               doReleaseShared to ensure propagation
          *               continues, even if other operations have
-         *               since intervened.
+         *               since intervened.该状态只会在头节点设置，来保证传播
          *   0:          None of the above，【重要知识点】前继节点ws=0表示当前线程正在运行，没有被阻塞住，此时当前线程有以下两种情况：【1】刚进入同步队列，前继节点ws还未来得及置为SIGNAL；【2】当前线程节点刚被唤醒，此时也需要将前继节点ws设置为0
          *
          * The values are arranged numerically to simplify use.
@@ -595,12 +595,13 @@ public abstract class AbstractQueuedSynchronizer
             if (t == null) { // Must initialize
                 if (compareAndSetHead(new Node()))
                     tail = head;
-            // 如果尾节点不为空，说明已经初始化过（注意若是首次初始化，也会经过自旋的方式进入该else分支），
-            // 此时通过自旋+CAS的方式重新执行入队操作
+                // 如果尾节点不为空，说明已经初始化过（注意若是首次初始化，也会经过自旋的方式进入该else分支），
+                // 此时通过自旋+CAS的方式重新执行入队操作
             } else {
                 node.prev = t;
                 if (compareAndSetTail(t, node)) {
                     t.next = node;
+                    // 注意，这里返回的是当前节点的前驱节点，而不是当前节点哈
                     return t;
                 }
             }
@@ -792,7 +793,7 @@ public abstract class AbstractQueuedSynchronizer
                 //                    参考：https://bugs.java.com/bugdatabase/view_bug.do?bug_id=6801020
                 // 【重要】节点的的PROPAGATE在这里设置，目的是为了解决并发释放的时候后继节点无法被唤醒的问题。注意，共享状态下的前继节点ws正常情况下也是SIGNAL哈。
                 else if (ws == 0 &&
-                         !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
+                        !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
                     continue;                // loop on failed CAS
             }
             // 若头节点未变，说明还是当年的那个头结点，在唤醒后继线程后未发生改变，此时负责release的线程使命已经完成，直接退出for循环即可
@@ -845,7 +846,7 @@ public abstract class AbstractQueuedSynchronizer
         // TODO 【QUESTION58】 (h = head) == null || h.waitStatus < 0)又是属于哪种情况呢？
 
         if (propagate > 0 || h == null || h.waitStatus < 0 ||
-            (h = head) == null || h.waitStatus < 0) {
+                (h = head) == null || h.waitStatus < 0) {
             // 若当前线程是同步队列中的第一个线程，被release的线程唤醒了，此时当前线程获取到同步状态，因此调用了setHeadAndPropagate方法将当前线程节点设置为头结点后，
             // 判断共享的同步状态仍大于0即propagate > 0（说明同时有其他线程release了同步状态）或waitStatus < 0 ，此时继续唤醒当前节点的下一个线程。
             Node s = node.next;
@@ -884,7 +885,7 @@ public abstract class AbstractQueuedSynchronizer
         // Can use unconditional write instead of CAS here.
         // After this atomic step, other Nodes can skip past us.
         // Before, we are free of interference from other threads.
-        // 将当前节点的ws设置为CANCELLED
+        // 将当前节点的ws设置为CANCELLED，注意这里并不是将取消的节点的前驱节点的ws置为CANCELLED哈，只有SIGNAL是设置在前驱节点，作用域当前节点的，而PROPAGATE只会在头节点设置。
         node.waitStatus = Node.CANCELLED;
 
         // If we are the tail, remove ourselves.
@@ -892,10 +893,10 @@ public abstract class AbstractQueuedSynchronizer
         if (node == tail && compareAndSetTail(node, pred)) {
             // 同时将之前从后往前遍历找到的第一个未取消的pred线程节点的next指针置为null
             compareAndSetNext(pred, predNext, null);
-        // 如果当前抛出异常的线程对应节点不是尾节点，则说明其后的正在等待的线程节点需要被唤醒，此时又分两种情况：
-        // 【1】如果从后往前遍历第一个未被取消的pred线程节点不是头节点，且其ws为SIGNAL，此时将pred的next指针指向被取消的当前线程的下一个节点，此时不用唤醒，
-        //     因为前面还有正在阻塞的线程节点，还轮不到，而这个被取消的线程节点很可能是被中断唤醒的
-        // 【2】如果从后往前遍历第一个未被取消的pred线程节点是头节点，那么此时需要唤醒后一个线程节点，否则后一个线程节点可能会永远阻塞等待？
+            // 如果当前抛出异常的线程对应节点不是尾节点，则说明其后的正在等待的线程节点需要被唤醒，此时又分两种情况：
+            // 【1】如果从后往前遍历第一个未被取消的pred线程节点不是头节点，且其ws为SIGNAL，此时将pred的next指针指向被取消的当前线程的下一个节点，此时不用唤醒，
+            //     因为前面还有正在阻塞的线程节点，还轮不到，而这个被取消的线程节点很可能是被中断唤醒的
+            // 【2】如果从后往前遍历第一个未被取消的pred线程节点是头节点，那么此时需要唤醒后一个线程节点，否则后一个线程节点可能会永远阻塞等待？
         } else {
             // If successor needs signal, try to set pred's next-link
             // so it will get one. Otherwise wake it up to propagate.
@@ -903,13 +904,13 @@ public abstract class AbstractQueuedSynchronizer
             // 如果从后往前遍历第一个未被取消的pred线程节点不是头节点，且其ws为SIGNAL，此时将pred的next指针指向被取消的当前线程的下一个节点
             // （此时这个节点是尾节点那么ws=0，如果不是，那么ws=-1）
             if (pred != head &&
-                ((ws = pred.waitStatus) == Node.SIGNAL ||
-                 (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
-                pred.thread != null) {
+                    ((ws = pred.waitStatus) == Node.SIGNAL ||
+                            (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
+                    pred.thread != null) {
                 Node next = node.next;
                 if (next != null && next.waitStatus <= 0)
                     compareAndSetNext(pred, predNext, next);
-            // 如果从后往前遍历第一个未被取消的pred线程节点是头节点，那么此时需要唤醒后一个线程节点，这个要唤醒的后一个线程节点即当前被取消的线程节点的下一个节点
+                // 如果从后往前遍历第一个未被取消的pred线程节点是头节点，那么此时需要唤醒后一个线程节点，这个要唤醒的后一个线程节点即当前被取消的线程节点的下一个节点
             } else {
                 // 唤醒node节点的后续节点，个人感觉这里是因为本来要被唤醒的当前节点被取消，此时所以需要唤醒下一个未被取消的节点，因为此时锁很可能被释放，再不唤醒同步队列阻塞的线程可能就没有其他线程来唤醒了
                 // 下面文字来源：http://www.tianxiaobo.com/2018/05/01/AbstractQueuedSynchronizer-%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90-%E7%8B%AC%E5%8D%A0-%E5%85%B1%E4%BA%AB%E6%A8%A1%E5%BC%8F/
@@ -971,7 +972,7 @@ public abstract class AbstractQueuedSynchronizer
                 node.prev = pred = pred.prev;
             } while (pred.waitStatus > 0);
             pred.next = node;
-        // 3) pred.waitStatus == 0 or Node.PROPAGATE(-3),TODO 注意为何这里肯定不是Node.CONDITION（-2）
+            // 3) pred.waitStatus == 0 or Node.PROPAGATE(-3),TODO 注意为何这里肯定不是Node.CONDITION（-2）
         } else {
             /*
              * waitStatus must be 0 or PROPAGATE.  Indicate that we
@@ -1059,7 +1060,7 @@ public abstract class AbstractQueuedSynchronizer
                 // 【ANSWER1】1）如果唤醒的是同步队列中的第一个线程节点，此时其前节点就是head头节点，因此再次进入for循环去获取同步状态；
                 //           2）如果唤醒的不是同步队列中的第一个线程节点（可能是被中断唤醒的），此时会继续park阻塞。
                 if (shouldParkAfterFailedAcquire(p, node) &&
-                    parkAndCheckInterrupt())
+                        parkAndCheckInterrupt())
                     // 执行到这里，说明正在parking阻塞的线程被中断从而被唤醒，因此设置interrupted为true，因为parkAndCheckInterrupt将中断标识清除了，所以后续该线程需要自我interrupt一下
                     interrupted = true;
             }
@@ -1076,7 +1077,7 @@ public abstract class AbstractQueuedSynchronizer
      * @param arg the acquire argument
      */
     private void doAcquireInterruptibly(int arg)
-        throws InterruptedException {
+            throws InterruptedException {
         final Node node = addWaiter(Node.EXCLUSIVE);
         boolean failed = true;
         try {
@@ -1089,7 +1090,7 @@ public abstract class AbstractQueuedSynchronizer
                     return;
                 }
                 if (shouldParkAfterFailedAcquire(p, node) &&
-                    parkAndCheckInterrupt())
+                        parkAndCheckInterrupt())
                     throw new InterruptedException();
             }
         } finally {
@@ -1127,7 +1128,7 @@ public abstract class AbstractQueuedSynchronizer
                 if (nanosTimeout <= 0L)
                     return false;
                 if (shouldParkAfterFailedAcquire(p, node) &&
-                    nanosTimeout > spinForTimeoutThreshold)
+                        nanosTimeout > spinForTimeoutThreshold)
                     LockSupport.parkNanos(this, nanosTimeout);
                 if (Thread.interrupted())
                     throw new InterruptedException();
@@ -1169,7 +1170,7 @@ public abstract class AbstractQueuedSynchronizer
                     }
                 }
                 if (shouldParkAfterFailedAcquire(p, node) &&
-                    parkAndCheckInterrupt())
+                        parkAndCheckInterrupt())
                     interrupted = true;
             }
         } finally {
@@ -1183,7 +1184,7 @@ public abstract class AbstractQueuedSynchronizer
      * @param arg the acquire argument
      */
     private void doAcquireSharedInterruptibly(int arg)
-        throws InterruptedException {
+            throws InterruptedException {
         final Node node = addWaiter(Node.SHARED);
         boolean failed = true;
         try {
@@ -1199,7 +1200,7 @@ public abstract class AbstractQueuedSynchronizer
                     }
                 }
                 if (shouldParkAfterFailedAcquire(p, node) &&
-                    parkAndCheckInterrupt())
+                        parkAndCheckInterrupt())
                     throw new InterruptedException();
             }
         } finally {
@@ -1238,7 +1239,7 @@ public abstract class AbstractQueuedSynchronizer
                 if (nanosTimeout <= 0L)
                     return false;
                 if (shouldParkAfterFailedAcquire(p, node) &&
-                    nanosTimeout > spinForTimeoutThreshold)
+                        nanosTimeout > spinForTimeoutThreshold)
                     LockSupport.parkNanos(this, nanosTimeout);
                 if (Thread.interrupted())
                     throw new InterruptedException();
@@ -1402,10 +1403,10 @@ public abstract class AbstractQueuedSynchronizer
     public final void acquire(int arg) {
         // 【1】首先调用子类重写的tryAcquire方法看能否获取到同步状态（可以理解为锁），若获取到同步状态则马上返回；否则该线程被封装为Node节点进入同步队列
         if (!tryAcquire(arg) &&
-            // 【3】 将当前线程 TODO 继续完善注释
-            acquireQueued(
-                // 【2】执行到这里，说明该线程没能获取到同步状态，此时现将该线程进入同步队列，此时只是单纯的进入了同步队列的链表，还未park阻塞哈
-                addWaiter(Node.EXCLUSIVE), arg))
+                // 【3】 将当前线程 TODO 继续完善注释
+                acquireQueued(
+                        // 【2】执行到这里，说明该线程没能获取到同步状态，此时现将该线程进入同步队列，此时只是单纯的进入了同步队列的链表，还未park阻塞哈
+                        addWaiter(Node.EXCLUSIVE), arg))
             // 执行到这里，说明当前线程在同步队列中曾经被interrupt了，此时需要自我interrupt下，搞个中断标识
             selfInterrupt();
     }
@@ -1454,7 +1455,7 @@ public abstract class AbstractQueuedSynchronizer
         if (Thread.interrupted())
             throw new InterruptedException();
         return tryAcquire(arg) ||
-            doAcquireNanos(arg, nanosTimeout);
+                doAcquireNanos(arg, nanosTimeout);
     }
 
     /**
@@ -1556,7 +1557,7 @@ public abstract class AbstractQueuedSynchronizer
         if (Thread.interrupted())
             throw new InterruptedException();
         return tryAcquireShared(arg) >= 0 ||
-            doAcquireSharedNanos(arg, nanosTimeout);
+                doAcquireSharedNanos(arg, nanosTimeout);
     }
 
     /**
@@ -1641,9 +1642,9 @@ public abstract class AbstractQueuedSynchronizer
         Node h, s;
         Thread st;
         if (((h = head) != null && (s = h.next) != null &&
-             s.prev == head && (st = s.thread) != null) ||
-            ((h = head) != null && (s = h.next) != null &&
-             s.prev == head && (st = s.thread) != null))
+                s.prev == head && (st = s.thread) != null) ||
+                ((h = head) != null && (s = h.next) != null &&
+                        s.prev == head && (st = s.thread) != null))
             return st;
 
         /*
@@ -1696,9 +1697,9 @@ public abstract class AbstractQueuedSynchronizer
     final boolean apparentlyFirstQueuedIsExclusive() {
         Node h, s;
         return (h = head) != null &&
-            (s = h.next)  != null &&
-            !s.isShared()         &&
-            s.thread != null;
+                (s = h.next)  != null &&
+                !s.isShared()         &&
+                s.thread != null;
     }
 
     /**
@@ -1752,7 +1753,7 @@ public abstract class AbstractQueuedSynchronizer
         Node h = head;
         Node s;
         return h != t &&
-            ((s = h.next) == null || s.thread != Thread.currentThread());
+                ((s = h.next) == null || s.thread != Thread.currentThread());
     }
 
 
@@ -1851,7 +1852,7 @@ public abstract class AbstractQueuedSynchronizer
         int s = getState();
         String q  = hasQueuedThreads() ? "non" : "";
         return super.toString() +
-            "[State = " + s + ", " + q + "empty queue]";
+                "[State = " + s + ", " + q + "empty queue]";
     }
 
 
@@ -1914,6 +1915,8 @@ public abstract class AbstractQueuedSynchronizer
         /*
          * If cannot change waitStatus, the node has been cancelled.
          */
+        // 1）正常情况下，条件队列中的节点ws为CONDITION，因此能成功将该节点的ws置为0,因此CAS成功，继续往下执行
+        // 2）否则，若条件队列的节点的ws不为CONDITION，说明该节点被取消，因此CAS失败，返回false
         if (!compareAndSetWaitStatus(node, Node.CONDITION, 0))
             return false;
 
@@ -1923,9 +1926,16 @@ public abstract class AbstractQueuedSynchronizer
          * attempt to set waitStatus fails, wake up to resync (in which
          * case the waitStatus can be transiently and harmlessly wrong).
          */
+        // 执行到这里，说明前面CAS成功将当前节点的ws置为0
+        // 此时将从条件队列出来的节点插入到同步队列尾部并返回当前节点的前驱节点（该前驱节点是该节点插入到同步队列前的尾节点）
         Node p = enq(node);
+        //  拿到该前驱节点的ws
         int ws = p.waitStatus;
+        // 1）若前驱节点ws>0，说明前驱节点被取消了，需要唤醒当前节点的线程；
+        // 2）若前驱节点ws<=0，此时前驱节点ws为0，因为前驱节点原先是当前节点入同步队列前的尾节点，同步队列尾节点ws=0，此时CAS前驱节点ws为SIGNAL即表示当前节点会被等待唤醒，此时直接返回true；若CAS失败，则马上唤醒当前节点 TODO 【QUESTION64】 为何这里会CAS失败呢？
+        // TODO 【QUESTION65】为何前驱节点被取消或compareAndSetWaitStatus(p, ws, Node.SIGNAL)失败需要马上唤醒当前节点？
         if (ws > 0 || !compareAndSetWaitStatus(p, ws, Node.SIGNAL))
+            // 注意这里被唤醒的线程和从条件队列的节点转移到同步队列的节点被唤醒后，会在原来await方法的park那句代码醒过来，然后调用下面的acquireQueue方法
             LockSupport.unpark(node.thread);
         return true;
     }
@@ -1972,7 +1982,7 @@ public abstract class AbstractQueuedSynchronizer
             if (release(savedState)) {
                 failed = false;
                 return savedState;
-            // 若释放同步状态失败了，那么抛出IllegalMonitorStateException
+                // 若释放同步状态失败了，那么抛出IllegalMonitorStateException
             } else {
                 throw new IllegalMonitorStateException();
             }
@@ -2110,7 +2120,7 @@ public abstract class AbstractQueuedSynchronizer
             // 若尾节点为null，说明还未初始化过，此时将尾节点指针指向当前节点即可
             if (t == null)
                 firstWaiter = node;
-            // 若已经初始化过，此时条件队列已经有等待的节点的了，此时将当前节点加入到条件队列尾部即可
+                // 若已经初始化过，此时条件队列已经有等待的节点的了，此时将当前节点加入到条件队列尾部即可
             else
                 t.nextWaiter = node;
             // 并将尾节点指针移动到当前节点
@@ -2127,11 +2137,17 @@ public abstract class AbstractQueuedSynchronizer
          */
         private void doSignal(Node first) {
             do {
+                // 拿到条件队列中第一个节点的下一个节点，若下一个节点为null，说明条件队列除了这个节点外没有其他节点，此时将lastWaiter指针指向null，
+                // 因为该节点即将要从条件队列出队转移到同步队列中
                 if ( (firstWaiter = first.nextWaiter) == null)
                     lastWaiter = null;
+                // 将当前节点的nextWaiter置为null即完成了将该节点从条件队列中移除的动作，同时也为await方法中的if (node.nextWaiter != null) 判断埋下了伏笔
+                //
                 first.nextWaiter = null;
+                // 1）若transferForSignal返回true，说明要么条件队列出队的当前节点被成功转移到了同步队列，此时直接退出while循环；
+                // 2）若transferForSignal返回false,说明条件队列中的该节点被取消，此时继续遍历条件队列的下一个节点，若下一个节点不为null，那么继续将下一个节点转移到同步队列中
             } while (!transferForSignal(first) &&
-                     (first = firstWaiter) != null);
+                    (first = firstWaiter) != null);
         }
 
         /**
@@ -2201,6 +2217,7 @@ public abstract class AbstractQueuedSynchronizer
             if (first != null)
                 // 将该节点唤醒
                 doSignal(first);
+            // signal完后，该线程会释放同步状态（锁），然后从条件队列中被转移到同步队列的节点将被唤醒来竞争同步状态（锁），前提是此时该节点已经是同步队列的第一个节点哈
         }
 
         /**
@@ -2261,11 +2278,11 @@ public abstract class AbstractQueuedSynchronizer
          */
         private int checkInterruptWhileWaiting(Node node) {
             return Thread.interrupted() ?
-                // 若被中断了，此时调用transferAfterCancelledWait方法来确定下该线程中断是在被signal前还是被signal后中断，
-                // 【1】若该线程是在被signal前中断了，说明该线程还处于条件队列中就被中断了，此时transferAfterCancelledWait方法返回，需要将该异常抛出去
-                // 【2】若该线程是在被signal后中断了，
-                (transferAfterCancelledWait(node) ? THROW_IE : REINTERRUPT) :
-                0;
+                    // 若被中断了，此时调用transferAfterCancelledWait方法来确定下该线程中断是在被signal前还是被signal后中断，
+                    // 【1】若该线程是在被signal前中断了，说明该线程还处于条件队列中就被中断了，此时transferAfterCancelledWait方法返回，需要将该异常抛出去
+                    // 【2】若该线程是在被signal后中断了，
+                    (transferAfterCancelledWait(node) ? THROW_IE : REINTERRUPT) :
+                    0;
         }
 
         /**
@@ -2273,7 +2290,7 @@ public abstract class AbstractQueuedSynchronizer
          * does nothing, depending on mode.
          */
         private void reportInterruptAfterWait(int interruptMode)
-            throws InterruptedException {
+                throws InterruptedException {
             if (interruptMode == THROW_IE)
                 throw new InterruptedException();
             else if (interruptMode == REINTERRUPT)
@@ -2313,6 +2330,7 @@ public abstract class AbstractQueuedSynchronizer
                     break;
             }
             // 如果当前线程已经在同步队列中，可能是当前线程被唤醒且被转移到同步队列了，此时需要再次去获取同步状态（锁），因为另一个调用signal唤醒的线程之后会释放锁。
+            // 【注意】从条件队列转移到同步队列的阻塞节点被唤醒后，将执行这里的逻辑即调用acquireQueued去竞争锁哈！
             if (acquireQueued(node, savedState) && interruptMode != THROW_IE)
                 interruptMode = REINTERRUPT;
             // TODO 这里待分析
@@ -2541,15 +2559,15 @@ public abstract class AbstractQueuedSynchronizer
     static {
         try {
             stateOffset = unsafe.objectFieldOffset
-                (AbstractQueuedSynchronizer.class.getDeclaredField("state"));
+                    (AbstractQueuedSynchronizer.class.getDeclaredField("state"));
             headOffset = unsafe.objectFieldOffset
-                (AbstractQueuedSynchronizer.class.getDeclaredField("head"));
+                    (AbstractQueuedSynchronizer.class.getDeclaredField("head"));
             tailOffset = unsafe.objectFieldOffset
-                (AbstractQueuedSynchronizer.class.getDeclaredField("tail"));
+                    (AbstractQueuedSynchronizer.class.getDeclaredField("tail"));
             waitStatusOffset = unsafe.objectFieldOffset
-                (Node.class.getDeclaredField("waitStatus"));
+                    (Node.class.getDeclaredField("waitStatus"));
             nextOffset = unsafe.objectFieldOffset
-                (Node.class.getDeclaredField("next"));
+                    (Node.class.getDeclaredField("next"));
 
         } catch (Exception ex) { throw new Error(ex); }
     }
@@ -2575,8 +2593,8 @@ public abstract class AbstractQueuedSynchronizer
                                                          int expect,
                                                          int update) {
         return unsafe.compareAndSwapInt(node, waitStatusOffset,
-                                        expect, update);
-    } 
+                expect, update);
+    }
 
     /**
      * CAS next field of a node.
