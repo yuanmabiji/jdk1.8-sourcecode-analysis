@@ -716,7 +716,7 @@ public abstract class AbstractQueuedSynchronizer
         /*
          * Thread to unpark is held in successor, which is normally
          * just the next node.  But if cancelled or apparently null,
-         * traverse backwards from tail to find the actual
+         * traverse backwards from tail to find the actualf
          * non-cancelled successor.
          */
         // 拿到当前节点的下一个节点
@@ -2322,10 +2322,20 @@ public abstract class AbstractQueuedSynchronizer
             int interruptMode = 0;
             // 如果当前节点不在同步队列中，则直接阻塞当前已经释放同步状态（释放了锁）的线程
             // 不在同步队列中有以下情形：【1】当一个线程获取到同步状态（锁）后，马上调用了await方法，此时当前线程会被封装为一个CONDITION节点并进入条件队列，此时ws = CONDITION；
-            //                       【2】当一个在条件队列阻塞的线程节点被唤醒后，若此时未能转移到同步队列？TODO 确认下有没有这种可能？
+            //                       【2】当一个在条件队列阻塞的线程节点被唤醒或被中断后，若此时未能成功转移到同步队列？
+            //                           TODO 【QUESTION66】 确认下有没有这种可能？感觉没有，因为如果是该线程在parking被中断唤醒，会调用checkInterruptWhileWaiting方法里的enq将该节点入队，之后再到while循环条件；
+            //                                              如果该线程被正常唤醒的话，也是先将该线程节点先入同步队列，最后再唤醒该parking的线程，然后再到while循环条件
             while (!isOnSyncQueue(node)) {
+                // 这里首先需要明确两点：1）被正常signal唤醒的线程需要从条件队列进入同步队列；2）正在条件队列中阻塞的线程被中断的话，最终也是需要进入同步队列；
+                // 因为基于上面两种情况，只要醒过来的线程都要去重新竞争同步状态（锁），而竞争同步状态（锁）的正常步骤都是先将该线程节点入同步队列，然后再再调用
+                // acquireQueued方法自旋获取锁，这也从侧面解释了为啥条件队列被中断的线程节点也需要进入同步队列。
+
+                // 1）若是条件队列中阻塞（还未被signal）被中断的线程醒来后，此时是THROW_IE的情形，同时调用acquireQueued方法又获取到了同步状态（锁），此时该线程节点会退出同步队列，
+                //    最后在reportInterruptAfterWait方法中抛出InterruptedException，如果该线程抛出异常后，是不是刚获取的同步状态（锁）没有释放，所以要求我们在finally块中执行释放同步状态（锁）的操作来确保异常也能成功释放同步状态。
+                // 2）若是条件队列中阻塞（还未被signal）被中断的线程醒来后，此时是THROW_IE的情形，同时调用acquireQueued方法没能获取到同步状态（锁），此时该线程节点会继续留在同步队列，并且再次
+                //    进入parking阻塞状态。若parking没有被中断，若有中断，acquireQueued返回值不同， TODO 待分析
                 LockSupport.park(this);
-                // 检查下该线程在等待过程中有无被中断，若是被中断唤醒，此时直接退出while循环；若是正常被signal唤醒，此时继续while循环，TODO 此时若被signal唤醒，执行到这里是不是该节点已经被转移到同步队列了？
+                // 检查下该线程在等待过程中有无被中断，若是被中断唤醒，此时直接退出while循环；若是正常被signal唤醒，此时继续while循环，此时若被signal唤醒，执行到这里正常情况下该节点已经被转移到同步队列了
                 if ((interruptMode = checkInterruptWhileWaiting(node)) != 0)
                     break;
             }
