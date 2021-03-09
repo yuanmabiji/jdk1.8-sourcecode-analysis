@@ -38,6 +38,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+
+import com.sun.xml.internal.bind.v2.TODO;
 import sun.misc.Unsafe;
 // 文章推荐：
 // https://www.cnblogs.com/micrari/p/6937995.html
@@ -1030,6 +1032,7 @@ public abstract class AbstractQueuedSynchronizer
             // 中断标志
             boolean interrupted = false;
             // 自旋
+            // 【重要知识点】只要进入acquireQueued方法的线程，在正常执行没异常的情况下，该线程是必定要获取到同步状态（锁）才能退出for循环即该方法结束，除非在tryAcquire时抛出异常。
             for (;;) {
                 // 拿到当前节点的前一个节点
                 final Node p = node.predecessor();
@@ -1067,7 +1070,11 @@ public abstract class AbstractQueuedSynchronizer
         } finally {
             // 若failed仍为true的话，说明前面try代码段抛出了一个异常,这里很可能是tryAcquire方法抛出异常，因为tryAcquire方法是留给子类实现的难免有异常
             if (failed)
-                // 抛出异常后，需要取消获取同步状态同时将已经入队的当前线程节点移除，根据情况看是否需要唤醒下一个线程节点，当然，移除会继续向上抛出
+                // 抛出异常后，需要取消获取同步状态同时将已经入队的当前线程节点移除，根据情况看是否需要唤醒下一个线程节点，当然，异常会继续向上抛出
+                // 假如前面是tryAcquire抛出异常，此时有以下两种情况：
+                // 1)获取到了同步状态（锁）后抛出异常，在业务代码的finally块中执行释放同步状态，此时无异常；
+                // 2）还未获取到同步状态就抛出异常，在业务代码的finally块中执行释放同步状态，此时释放同步状态的方法tryReleae的结果会为负值，同时本异常继续向上抛出；
+                // 此时也不会唤醒后继节点，若又不符合cancelAcquire方法唤醒后继节点的条件，难道此时后继节点就只有等到有其他新来的线程再次获取同步状态后release来唤醒么？假如没有新来的线程呢？ TODO 待确认是不是存在这种情况？
                 cancelAcquire(node);
         }
     }
@@ -1955,13 +1962,15 @@ public abstract class AbstractQueuedSynchronizer
             enq(node);
             return true;
         }
+        // 代码执行到这里，说明前面CAS节点的ws失败，说明该线程是在被signal过程中或被signal后（被unpark后）被中断的
+        // 为什么呢？因为若该线程还没被signal即在signal前，该节点ws为CONDITION
         /*
          * If we lost out to a signal(), then we can't proceed
          * until it finishes its enq().  Cancelling during an
          * incomplete transfer is both rare and transient, so just
          * spin.
          */
-        // TODO 待分析，这里还不是很理解，待分析完signal方法后再回来分析
+        // 若该线程节点还没能成功从条件队列转移到同步队列，说明是正在转移的过程中，此时什么也不用做，只是自旋并让出cpu时间片段直到该节点被转移到同步队列后退出自旋并返回false
         while (!isOnSyncQueue(node))
             Thread.yield();
         return false;
@@ -2280,7 +2289,8 @@ public abstract class AbstractQueuedSynchronizer
             return Thread.interrupted() ?
                     // 若被中断了，此时调用transferAfterCancelledWait方法来确定下该线程中断是在被signal前还是被signal后中断，
                     // 【1】若该线程是在被signal前中断了，说明该线程还处于条件队列中就被中断了，此时transferAfterCancelledWait方法返回，需要将该异常抛出去
-                    // 【2】若该线程是在被signal后中断了，
+                    // 【2】若该线程是在被signal中或后被中断了，说明这个线程是正常唤醒的线程，又因为前面调用了Thread.interrupted() 清除了中断标识，此时返回REINTERRUPT
+                    //     即意味着返回await方法后需要自我interrupt下，搞个中断标志供用户识别，用户怎么处理是用户的事情了
                     (transferAfterCancelledWait(node) ? THROW_IE : REINTERRUPT) :
                     0;
         }
@@ -2328,12 +2338,16 @@ public abstract class AbstractQueuedSynchronizer
             while (!isOnSyncQueue(node)) {
                 // 这里首先需要明确两点：1）被正常signal唤醒的线程需要从条件队列进入同步队列；2）正在条件队列中阻塞的线程被中断的话，最终也是需要进入同步队列；
                 // 因为基于上面两种情况，只要醒过来的线程都要去重新竞争同步状态（锁），而竞争同步状态（锁）的正常步骤都是先将该线程节点入同步队列，然后再再调用
-                // acquireQueued方法自旋获取锁，这也从侧面解释了为啥条件队列被中断的线程节点也需要进入同步队列。
+                // acquireQueued方法自旋获取锁，这也从侧面解释了为啥条件队列被中断的线程节点也需要进入同步队列。此外，基于2）的情形，如果不进入同步队列即不调用acquireQueued（调用了acquireQueued
+                // 方法意味着正常情况下该线程必须先获取到同步状态（锁）才能返回即正常情况下，只要调用了acquireQueued就意味着最终能获取到锁）
+                // 而最后在业务代码块中释放了同步状态（锁），此时是没获取到同步状态（锁）的，此时肯定会有另一个异常（没获取同步状态却释放同步状态的异常）会抛出从而覆盖中断异常
 
                 // 1）若是条件队列中阻塞（还未被signal）被中断的线程醒来后，此时是THROW_IE的情形，同时调用acquireQueued方法又获取到了同步状态（锁），此时该线程节点会退出同步队列，
                 //    最后在reportInterruptAfterWait方法中抛出InterruptedException，如果该线程抛出异常后，是不是刚获取的同步状态（锁）没有释放，所以要求我们在finally块中执行释放同步状态（锁）的操作来确保异常也能成功释放同步状态。
                 // 2）若是条件队列中阻塞（还未被signal）被中断的线程醒来后，此时是THROW_IE的情形，同时调用acquireQueued方法没能获取到同步状态（锁），此时该线程节点会继续留在同步队列，并且再次
-                //    进入parking阻塞状态。若parking没有被中断，若有中断，acquireQueued返回值不同， TODO 待分析
+                //    进入parking阻塞状态。若在同步队列中parking没有被中断，当被唤醒后，若能获取到同步状态，此时acquireQueued方法返回false，继续执行代码时，因为interruptMode=-1，此时继续执行
+                //    reportInterruptAfterWait方法；当若在同步队列中parking中被中断，当被唤醒后，若能获取到同步状态，此时acquireQueued方法返回true。
+                // 【总结】正在条件队列中parking的线程不管是被正常signal唤醒还是异常中断唤醒，此时都需要入同步队列去竞争锁，以避免业务代码的finally块释放同步状态出错。
                 LockSupport.park(this);
                 // 检查下该线程在等待过程中有无被中断，若是被中断唤醒，此时直接退出while循环；若是正常被signal唤醒，此时继续while循环，此时若被signal唤醒，执行到这里正常情况下该节点已经被转移到同步队列了
                 if ((interruptMode = checkInterruptWhileWaiting(node)) != 0)
@@ -2341,11 +2355,20 @@ public abstract class AbstractQueuedSynchronizer
             }
             // 如果当前线程已经在同步队列中，可能是当前线程被唤醒且被转移到同步队列了，此时需要再次去获取同步状态（锁），因为另一个调用signal唤醒的线程之后会释放锁。
             // 【注意】从条件队列转移到同步队列的阻塞节点被唤醒后，将执行这里的逻辑即调用acquireQueued去竞争锁哈！
+            // 这里的savedState保存的是之前fullyRelease的返回值，考虑可重入锁的情况，之前释放了多少同步状态，此时再次获取同步状态时就同样要再次获取同等量级的同步状态。
             if (acquireQueued(node, savedState) && interruptMode != THROW_IE)
+                // 这里表示条件队列的线程节点被signal后中断，此时这里是REINTERRUPT类型，意味着需要自我interrupt下，搞个中断标志供用户识别，用户怎么处理是用户的事情了
                 interruptMode = REINTERRUPT;
-            // TODO 这里待分析
+            // 代码执行到这里，说明该线程醒来后（不管中断还是正常唤醒），再次获取到了锁
+            // 【QUESTION63】为啥node.nextWaiter != null说明该节点就被CANCEL了呢？
+            // 【ANSWER63】首先这里得先明确节点何时会被CANCEL,一般正在同步队列或条件队列parking阻塞的节点若被中断的话，此时意味着该节点被CANCEL了 TODO 总结下还有无其他节点被CANCEL的情况。
+            //            其次，线程能执行到这里，说明要么正在条件队列的线程节点要么被signal正常唤醒，要么被中断，下面就这两种情况展开分析：
+            //            1)被signal正常唤醒，那么在doSignal方法中会将node.nextWaiter置为null，然后将该节点转移到同步队列最后再唤醒该节点，因此该节点被唤醒后执行到这里，不满足node.nextWaiter != null条件
+            //            2）被中断唤醒，前面会通过break跳出while循环，此时满足ode.nextWaiter != null的条件，说明此时该节点被CANCEL，
             if (node.nextWaiter != null) // clean up if cancelled
+                // TODO 待分析
                 unlinkCancelledWaiters();
+            // nterruptMode != 0，说明正在条件队列parking的线程被中断了；否则就是被正常唤醒
             if (interruptMode != 0)
                 reportInterruptAfterWait(interruptMode);
         }
