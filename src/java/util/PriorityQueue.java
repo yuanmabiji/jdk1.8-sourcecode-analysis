@@ -289,6 +289,7 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      *
      * @param minCapacity the desired minimum capacity
      */
+    // 扩容方法是private修饰，说明仅仅是内部使用
     private void grow(int minCapacity) {
         int oldCapacity = queue.length;
         // Double size if small; else grow by 50%
@@ -296,14 +297,18 @@ public class PriorityQueue<E> extends AbstractQueue<E>
                                          (oldCapacity + 2) :
                                          (oldCapacity >> 1));
         // overflow-conscious code
+        // 若扩容后的容量比MAX_ARRAY_SIZE还大，此时调用hugeCapacity方法重新分配容量；否则，直接用扩容后的容量大小
         if (newCapacity - MAX_ARRAY_SIZE > 0)
+            // 一般传进来的minCapacity为原来size+1
             newCapacity = hugeCapacity(minCapacity);
         queue = Arrays.copyOf(queue, newCapacity);
     }
 
     private static int hugeCapacity(int minCapacity) {
+        // 若原来size+1<0，此时肯定是溢出了说明队列装不下任何元素了，此时抛出OutOfMemoryError
         if (minCapacity < 0) // overflow
             throw new OutOfMemoryError();
+        // 若没溢出，此时minCapacity大于> MAX_ARRAY_SIZE的话，那么直接赋值为Integer.MAX_VALUE；否则赋值MAX_ARRAY_SIZE
         return (minCapacity > MAX_ARRAY_SIZE) ?
             Integer.MAX_VALUE :
             MAX_ARRAY_SIZE;
@@ -332,15 +337,22 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      * @throws NullPointerException if the specified element is null
      */
     public boolean offer(E e) {
+        // 注意，队列插入元素是不允许null的
         if (e == null)
             throw new NullPointerException();
+        // fail-fast标志
         modCount++;
+        // 拿到队列的最后一个元素的下一个位置索引，此时队列索引i位置为null，供新元素插入
         int i = size;
+        // 若队列元素大小已经超过队列容量，此时扩容
         if (i >= queue.length)
             grow(i + 1);
+        // 因为新加入了一个元素，此时队列size加1
         size = i + 1;
+        // 若原来队列为空，此时直接将元素插入队列第一个位置即可
         if (i == 0)
             queue[0] = e;
+        // 若队列不为空，那么插入元素时需要自下而上调整堆顺序，目的是为了维持小顶堆的状态
         else
             siftUp(i, e);
         return true;
@@ -372,10 +384,12 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      * @return {@code true} if this queue changed as a result of the call
      */
     public boolean remove(Object o) {
+        // 首先遍历数组找到这个对象相应的索引
         int i = indexOf(o);
         if (i == -1)
             return false;
         else {
+            // 然后再根据索引去删除对应的元素
             removeAt(i);
             return true;
         }
@@ -585,13 +599,20 @@ public class PriorityQueue<E> extends AbstractQueue<E>
 
     @SuppressWarnings("unchecked")
     public E poll() {
+        // 若队列中无元素，此时直接返回null，表示队列空
         if (size == 0)
             return null;
+        // 拿到队列（堆）最后一个元素的位置
         int s = --size;
+        // fail-fast
         modCount++;
+        // 取出队列（堆）第一个元素
         E result = (E) queue[0];
+        // 拿到队列（堆）最后一个元素
         E x = (E) queue[s];
+        // 将队列（堆）最后一个元素删除
         queue[s] = null;
+        // 队列（堆）的最后一个元素不是根节点，则需要自上而下调整，维持小顶堆的状态
         if (s != 0)
             siftDown(0, x);
         return result;
@@ -613,13 +634,19 @@ public class PriorityQueue<E> extends AbstractQueue<E>
     private E removeAt(int i) {
         // assert i >= 0 && i < size;
         modCount++;
+        // 拿到最后一个元素的索引
         int s = --size;
+        // 如果是最后一个元素，直接移除即可
         if (s == i) // removed last element
             queue[i] = null;
+        // 不是最后一个元素
         else {
+            // 取到最后一个元素并将最后一个元素“删除”即移动到待删除元素位置然后再调整
             E moved = (E) queue[s];
             queue[s] = null;
+            // 从被删除那个元素开始自上而下调整
             siftDown(i, moved);
+            // TODO 待分析，这里的逻辑估计跟迭代器有关
             if (queue[i] == moved) {
                 siftUp(i, moved);
                 if (queue[i] != moved)
@@ -642,23 +669,34 @@ public class PriorityQueue<E> extends AbstractQueue<E>
      * @param x the item to insert
      */
     private void siftUp(int k, E x) {
+        // 优先使用外部比较器
         if (comparator != null)
             siftUpUsingComparator(k, x);
+        // 其次再使用自然排序
         else
             siftUpComparable(k, x);
     }
 
     @SuppressWarnings("unchecked")
     private void siftUpComparable(int k, E x) {
+        // 首先将带插入的元素转成Comparable类型，若x没有实现Comparable接口，此时抛出类转换异常，
+        // 所以若没用用外部比较器Compartor的情况下，此时要求入队的元素实现Comparable哈
         Comparable<? super E> key = (Comparable<? super E>) x;
+        // 若k=0,说明此时已经在while循环内比较过根节点了，所以这里k>0作为while循环的条件
         while (k > 0) {
+            // 拿到父节点索引，因为第一个元素是从数组索引0开始存储，所以拿父节点索引位置时需要k-1后除以2
             int parent = (k - 1) >>> 1;
+            // 取出父节点元素
             Object e = queue[parent];
+            // 因为是小顶堆，所以待插入的元素大于等于父节点元素的话，直接退出while循环即可
             if (key.compareTo((E) e) >= 0)
                 break;
+            // 若待插入的元素小于父节点元素，此时需要将父节点元素和待插入元素互换即将父节点元素移动到当前元素位置
             queue[k] = e;
+            // 然后再把父节点索引赋给当前待插入元素位置k
             k = parent;
         }
+        // 最后，经过while循环后，找到了当前入队元素对应的位置k，将其插入即可。
         queue[k] = key;
     }
 
@@ -690,17 +728,33 @@ public class PriorityQueue<E> extends AbstractQueue<E>
             siftDownComparable(k, x);
     }
 
+    /**
+     *
+     * @param k k为队列（堆）被删除的那个元素所在位置
+     * @param x x为队列（堆）最后一个元素
+     */
     @SuppressWarnings("unchecked")
     private void siftDownComparable(int k, E x) {
         Comparable<? super E> key = (Comparable<? super E>)x;
+        //
         int half = size >>> 1;        // loop while a non-leaf
+        // 因为叶子节点占了一半，所以while循环的临界条件是k<half.
+        // 举个例子：假如堆大小size为5，此时half = size >>> 1 = 2即定位到了最后一个元素的父节点所在索引位置，
+        // 而k又是以(k << 1) + 1这样速度递增的，只要超过了half，说明此时比较的就是叶子节点了。不管此时遍历的是
+        // 被删除元素的左子树还是右子树
         while (k < half) {
+            // 拿到左孩子的索引，同样，因为是从索引位置0开始存储元素，所以需要k*2后加1
             int child = (k << 1) + 1; // assume left child is least
+            // 拿到左孩子节点
             Object c = queue[child];
+            // 拿到右孩子的索引位置
             int right = child + 1;
+            // 若左孩子值比右孩子值大，此时取出右孩子给c，即从左孩子和右孩子中拿到最小的那个就是了
             if (right < size &&
                 ((Comparable<? super E>) c).compareTo((E) queue[right]) > 0)
                 c = queue[child = right];
+            // 1）若最后一个节点值小于等于左右孩子值，此时直接将最后一个元素插入到被删除的那个元素索引位置处即可；
+            // 2）若最后一个节点值大于左右孩子值，此时直接将左右孩子中最小的那个移动到被删除的位置，然后再将左右孩子中最小的那个孩子索引保留下来赋值给k，以便继续比较
             if (key.compareTo((E) c) <= 0)
                 break;
             queue[k] = c;

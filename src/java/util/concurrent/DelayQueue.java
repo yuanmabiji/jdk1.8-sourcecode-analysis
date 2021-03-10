@@ -134,11 +134,30 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * @throws NullPointerException if the specified element is null
      */
     public boolean offer(E e) {
+        // 保证线程安全
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
+            // 将实现了Delayed的元素对象放入延迟队列，这个元素对象必然实现了getDelay和compareTo方法
+            // 1）getDelay方法返回剩余时间，因此需要实现Delayed接口的元素对象定义一个成员变量deadLineTime来保存这个元素的截止时间，
+            // 可以在构建该对象时由生成的当前时间加上delay时间即可，然后在调用getDelay方法时由deadLineTime减去当前时间，若小于等于0则说明延迟时间已到；大于0说明还未到延迟时间；
+            // 2）compareTo是Comparable的方法，因为Delayed接口实现了Comparable接口，这个接口的作用是当前元素入延迟队列寻找位置使用，使得延迟时间最小的那个元素总能排到延迟队列的最前面
             q.offer(e);
+            // 如果当前入队的元素占据到了延迟队列的队首位置，此时需要马上唤醒条件队列中等待的第一个线程，并将leader置空
+            // 有以下两种情形能让当前入队的元素占据到延迟队列对首元素：
+            // 1）当前延迟队列为空；2）当前延迟队列不为空，但是新入队的元素延迟级更高（延迟时间更短）
+            // 当新入队元素占据到了延迟队列的队首时，此时需要将一个因take而阻塞的线程唤醒，这里为什么不每进一个元素就进行唤醒一次呢？
+            // 你想想，如果当前进入延迟队列的元素没有占据到队首位置，说明这个入队元素的延迟时间比目前队首元素的延迟时间还要大，此时若进行唤醒take阻塞的线程，
+            // 该线程醒来后很大概率会再次进入阻塞，引起没必要的线程切换，损耗性能，因为该take线程当阻塞等到剩余延迟时间到来自然会醒来。
+
+            // 而为什么该入队元素占据到了队首就要进行唤醒阻塞的take线程呢？
+            // 有两种情形需要考虑：
+            // 1）此时该入队元素是第一个元素，此时不进行唤醒的话，阻塞的take线程会永远阻塞下去，然后阻塞的take线程被唤醒后再次自旋拿到队首元素，此时执行逻辑跟2）一致；
+            // 2）此时延迟队列不为空，说明新入队的元素占据到了队首位置，因为阻塞的take线程此时阻塞的是原来队首元素的剩余延迟时间，
+            //    此时需要唤醒阻塞的take线程重新获取新的队首元素并计算延迟时间来决定是否需要阻塞，若需要则重新阻塞剩余的延迟时间。
             if (q.peek() == e) {
+                // TODO 【待分析，感觉这里分析有问题】这里将leader置为null，其中一个考虑是为了能让当延迟队列中没元素时正在阻塞的take线程被唤醒后能执行到自旋的if(leader == null)分支，然后将该线程加入到条件队列的队尾，
+                // 同时leader指针指向了条件队列队尾的这个线程节点？
                 leader = null;
                 available.signal();
             }
@@ -155,6 +174,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * @param e the element to add
      * @throws NullPointerException {@inheritDoc}
      */
+    // TODO 【QUESTION67】为何BlockingQueue的该接口有抛出中断异常，但该实现类却没抛出？
     public void put(E e) {
         offer(e);
     }
@@ -180,13 +200,18 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * @return the head of this queue, or {@code null} if this
      *         queue has no elements with an expired delay
      */
+    // 若延迟队列还没过期的元素，直接返回null，注意这里如果延迟队列没有元素也会返回null，此时需要调用size相关api来结合判断，该方法不会阻塞
+    // 若延迟队列有到期的元素，此时直接返回该元素即可
     public E poll() {
         final ReentrantLock lock = this.lock;
         lock.lock();
         try {
+            // 拿到第一个元素
             E first = q.peek();
+            // 说明队列空或延迟队列有元素但没有到期的元素
             if (first == null || first.getDelay(NANOSECONDS) > 0)
                 return null;
+            // 延时队列有已经到期的元素，直接出队处理即可
             else
                 return q.poll();
         } finally {
@@ -201,27 +226,48 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
      * @return the head of this queue
      * @throws InterruptedException {@inheritDoc}
      */
+    // 如果延迟队列为空或有元素但元素延迟还未到期，此时会阻塞直接等到延迟队列的元素延迟到期
     public E take() throws InterruptedException {
         final ReentrantLock lock = this.lock;
+        // 首先获取到锁，保证线程安全，这是一个可中断的锁，此时其他线程不能再往这个队列put元素了
         lock.lockInterruptibly();
         try {
+            // 自旋
             for (;;) {
+                // 拿到延迟队列第一个元素
                 E first = q.peek();
+                // 若没有元素，直接阻塞
                 if (first == null)
                     available.await();
+                // 若有元素，判断队首元素延期有无到期了，此时不用担心会有其他线程放一个比该队首元素优先级更高的元素进来，因为其他线程被锁在门外
                 else {
+                    // 拿到队首元素的延迟还剩多少时间
                     long delay = first.getDelay(NANOSECONDS);
+                    // 队首元素延迟到期了，此时直接出队
                     if (delay <= 0)
                         return q.poll();
+                    // 此时队首元素延迟还未到期，此时应该将该线程阻塞等待，所以释放first引用
                     first = null; // don't retain ref while waiting
+                    // 若leader线程不为空，说明已经有线程在等待队首元素啦，说明该线程也需要继续等待，因此直接阻塞该线程即可
                     if (leader != null)
                         available.await();
+                    // 若leader为空，说明该线程是第一个要拿队首元素的线程，当且仅当是第一个线程才会执行到这里，否则其他线程会进入前面的if分支
                     else {
+                        // 将当前线程赋值给leader
                         Thread thisThread = Thread.currentThread();
+                        // leader总是指向条件队列中的第一个等待节点的线程
                         leader = thisThread;
                         try {
+                            // 然后根据队首元素的剩余延迟时间来决定阻塞多久，能执行到这里的线程都会占据条件队列的第一个位置哈
                             available.awaitNanos(delay);
                         } finally {
+                            // 代码执行到这里，有以下情况：
+                            // 1）阻塞的take线程延迟时间到了此时醒过来，符合当前线程就是leader线程，此时该线程需要退出条件队列，因此将leader置为null同时作为一个标记（在finally块中有用到），但别忘了，此时条件队列中leader后面可能还有其他线程在等待哈；
+                            //    然后该线程继续自旋执行到前面的if (delay <= 0)分支，将队首元素出队，最后在后面的finally块中判断到该标记leader==null，此时又要根据延迟队列中还有无元素来决定是否唤醒仍在条件队列中等待的一个线程，有以下两种情形：
+                            //    a)若延迟队列中还有元素，此时需要唤醒一个仍在条件队列中等待的线程节点（否则可能会造成这个线程永远不会被唤醒），然后这个线程醒过来继续自旋，然后获取到头节点，拿到剩余延迟时间，执行到if (leader == null)的分支，再次阻塞剩余延迟时间，同时成为leader线程；
+                            //    b)若延迟队列中已经没有元素了，此时没必要唤醒仍在条件队列中等待的一个线程，这种情形下，等下次有一个元素入队（put或offer）时，自然会唤醒这个线程，然后执行前面a)步骤的再次自旋逻辑
+                            // 2）新入队元素占据到了延迟队列队首，阻塞的take线程延迟时间还未到，但被唤醒，此时leader在offer方法已经置为null了，所以不用再将leader置为null，因此不满足if (leader == thisThread)条件，
+                            //    此时再次自旋，自旋逻辑跟1）步骤一样
                             if (leader == thisThread)
                                 leader = null;
                         }
@@ -229,6 +275,7 @@ public class DelayQueue<E extends Delayed> extends AbstractQueue<E>
                 }
             }
         } finally {
+            // 这里只要leader为null说明条件队列中的第一个线程节点出队了，而延迟队列又还有元素的话，此时需要继续唤醒条件队列的另一个正在等待的线程
             if (leader == null && q.peek() != null)
                 available.signal();
             lock.unlock();

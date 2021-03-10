@@ -36,6 +36,7 @@
 package java.util;
 
 /**
+ * 【重要】队列中一般不允许插入null元素，不想LinkedList，因为队列中若取出null元素说明该队列为空。
  * A collection designed for holding elements prior to processing.
  * Besides basic {@link java.util.Collection Collection} operations,
  * queues provide additional insertion, extraction, and inspection
