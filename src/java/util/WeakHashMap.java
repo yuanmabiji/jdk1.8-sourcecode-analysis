@@ -34,6 +34,8 @@ import java.util.function.Consumer;
 
 
 /**
+ * 使用场景参考：Tomcat的ConcurrentCache
+ * TODO 【QUESTION68】为何WeakHashMap的value不搞成弱引用？
  * Hash table based implementation of the <tt>Map</tt> interface, with
  * <em>weak keys</em>.
  * An entry in a <tt>WeakHashMap</tt> will automatically be removed when
@@ -316,6 +318,8 @@ public class WeakHashMap<K,V>
      */
     private void expungeStaleEntries() {
         for (Object x; (x = queue.poll()) != null; ) {
+            // 这里为什么要同步呢？是因为在不涉及修改，只在并发读的情况下保证线程安全。因为对于WeakHashMap虽然是线程不安全的
+            // 但即使线程不安全也不能说让并发读不安全吧，因为这里WeakHashMap的读涉及到清理过期的entry，会修改内部结构，因此这里加锁是为了并发读的线程安全
             synchronized (queue) {
                 @SuppressWarnings("unchecked")
                     Entry<K,V> e = (Entry<K,V>) x;
@@ -700,6 +704,9 @@ public class WeakHashMap<K,V>
      * field as the key.
      */
     private static class Entry<K,V> extends WeakReference<Object> implements Map.Entry<K,V> {
+        // 注意：Entry之所以没有K属性，是不希望Entry的key为强引用，因为Entry只要保存了K这个成员变量，那么Entry就保存了键的强引用，达不到弱引用的效果了
+        // 所以在构造函数中直接将K传进来，然后将K封装成WeakReference
+        // 【注意区别】不是说Entry继承了WeakReference这个类，然后Entry就是弱引用的，然后每次GC就会将Entry回收，弱引用不是这样子用的哈
         V value;
         final int hash;
         Entry<K,V> next;

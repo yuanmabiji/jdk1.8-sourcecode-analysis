@@ -30,6 +30,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
+ * TODO 【QUESTION71】不使用线程池的情况下，当线程退出后但ThreadLocal对象仍然存活（比如作为某个存活类的静态变量），此时线程的threadLocals引用已经断开，
+ *                    但是Entry的key（ThreadLocal实例）虽为弱引用但还有强引用连着，所以弱引用未断开，此时整个threadLocalMap对象会被回收吗？
+ *                    自己根据多种情况多debug和学会用jvm工具来观察对象有没被回收！！！
+ * ThreadLocal实质采用了线性探测法，因为是用ThreadLocal实例本身作为Key,因此若能调用set
+ * 方法说明key肯定不为null，这也从侧面说明了ThreadLocal采用的线性探测法的key是不能为null的。
  * This class provides thread-local variables.  These variables differ from
  * their normal counterparts in that each thread that accesses one (via its
  * {@code get} or {@code set} method) has its own, independently initialized
@@ -123,6 +128,13 @@ public class ThreadLocal<T> {
      *
      * @return the initial value for this thread-local
      */
+    // 【QUESTION77】请问子类覆盖的initialValue是线程安全的吗？
+    // 【ANSWER77】  线程不安全，因为调用initialValue方法是get返回null时，再由调用线程去调用initialValue方法初始化值的，
+    //              若此时调用线程有n个且并发调用initialValue方法，此时若initialValue方法里操作的是成员变量或静态变量，此时
+    //              绝对存在线程安全问题的。那set/remove等方法也是由其他调用线程发起调用,为何并发调用set/remove方法却是线程安全的呢？
+    //              因为调用set/remove方法时，首先获得本线程的threadLocalMap对象，操作的是线程的本地副本，每个线程操作的副本都是线程
+    //              本地的，因此存在资源隔离，不像initialValue的成员变量，是没有资源隔离的情况，故initialValue里的成员变量线程不安全（有必要的话进行同步），
+    //              但操作set/remove方法是线程安全的。
     protected T initialValue() {
         return null;
     }
@@ -198,6 +210,7 @@ public class ThreadLocal<T> {
      */
     public void set(T value) {
         Thread t = Thread.currentThread();
+        // 拿到当前线程的threadLocals（每个线程有一个ThreadLocalMap对象）
         ThreadLocalMap map = getMap(t);
         if (map != null)
             map.set(this, value);
@@ -294,6 +307,7 @@ public class ThreadLocal<T> {
      * WeakReferences for keys. However, since reference queues are not
      * used, stale entries are guaranteed to be removed only when
      * the table starts running out of space.
+     * TODO 【QUESTION69】最后一句话怎么理解？难道跟自己的demo问题有关？
      */
     static class ThreadLocalMap {
 
@@ -340,6 +354,7 @@ public class ThreadLocal<T> {
          * Set the resize threshold to maintain at worst a 2/3 load factor.
          */
         private void setThreshold(int len) {
+            // 可见，loadFactor为2/3
             threshold = len * 2 / 3;
         }
 
@@ -363,10 +378,14 @@ public class ThreadLocal<T> {
          * one when we have at least one entry to put in it.
          */
         ThreadLocalMap(ThreadLocal<?> firstKey, Object firstValue) {
+            // 初始化哈希表
             table = new Entry[INITIAL_CAPACITY];
+            // 根据哈希值定位到桶的位置
             int i = firstKey.threadLocalHashCode & (INITIAL_CAPACITY - 1);
+            // 存储第一个key-value，key为ThreadLocal实例，为弱引用
             table[i] = new Entry(firstKey, firstValue);
             size = 1;
+            // 设置threshold，当达到这个值则进行扩容
             setThreshold(INITIAL_CAPACITY);
         }
 
@@ -460,11 +479,13 @@ public class ThreadLocal<T> {
 
             Entry[] tab = table;
             int len = tab.length;
+            // 定位哈系桶的位置
             int i = key.threadLocalHashCode & (len-1);
 
             // 【注意】若e != null说明hash冲突了，明白这一点很重要
             // 那么什么情况下会出现hash冲突呢？大部分情况下当ThreadLocal被作为静态成员变量时，此时必然会导致hash冲突
             for (Entry e = tab[i]; e != null;  e = tab[i = nextIndex(i, len)]) {
+                // 因为Entry间接继承了Reference，故可以通过Entry.get()来拿到弱引用key即ThreadLocal实例
                 ThreadLocal<?> k = e.get();
                 /*
                  *public class ThreadLocalDemo1 {
@@ -480,24 +501,28 @@ public class ThreadLocal<T> {
                   * 【注意】以上demo逻辑的代码会进入以下if (k == key)判断逻辑，因为stringThreadLocal被强引用，即使GC的话
                   * ThreadLocal对象也不会被回收。
                  */
-                // 1）若hash冲突，此时若k == key，替换值即可
+                // 1）若hash冲突，此时若k == key，则说明弱引用k不等于null即还未被回收，此时直接替换旧值即可
                 if (k == key) {
                     e.value = value;
                     return;
                 }
-                // 2）若hash冲突，若k == null，此时就要replaceStaleEntry(key, value, i);
+                // 2）若hash冲突，若k == null，说明若引用k已经被回收（因为没有强引用指向弱引用的对象即ThreadLocal实例了），但此时entry还不为null，
+                // 此时就要调用replaceStaleEntry(key, value, i)方法替换掉哈希槽i的entry,并做一些清理过期entry的动作
+                // 【QUESTION70】什么情况下会出现key为null，entry不为null的情况呢？
+                // 【ANSWER70】  当出现过期的entry时就会出现这种情况，当threadLocal实例作为Key时且threadLocal实例没有任何强引用时，此时发生一次GC就将Entry的key对threadLocal实例的弱引用
                 if (k == null) {
                     replaceStaleEntry(key, value, i);
                     return;
                 }
             }
-            // 3）执行到这里，说明没有hash冲突，此时就新建一个Entry，然后调用cleanSomeSlots方法清理一部分
-            // key为null的Entry，【注意】这里是清理一部分，而不是全部Key为null的Entry哈
+            // 3）执行到这里，有两种情况：
+            //    3.1）没有hash冲突，此时就新建一个Entry，放入哈希槽i位置即可；
+            //    3.2）出现哈希冲突，前面通过了一轮for循环线性探测到了下一个为null的哈希槽位置，此时插入这个哈希槽
+            // 然后调用cleanSomeSlots方法清理一部分key为null的Entry，【注意】这里是清理一部分，而不是全部Key为null的Entry哈
             tab[i] = new Entry(key, value);
             int sz = ++size;
-
+            // 若没有清理到一个过期的entry且size大于等于threshold，此时进行扩容且对于已有的entry重新进行hash定位到新表
             if (!cleanSomeSlots(i, sz) && sz >= threshold)
-                // 若达到了threshold且不存在Key为null的Entry的话，此时进行rehash
                 rehash();
         }
 
@@ -508,11 +533,11 @@ public class ThreadLocal<T> {
             Entry[] tab = table;
             int len = tab.length;
             int i = key.threadLocalHashCode & (len-1);
-            for (Entry e = tab[i];
-                 e != null;
-                 e = tab[i = nextIndex(i, len)]) {
+            for (Entry e = tab[i]; e != null; e = tab[i = nextIndex(i, len)]) {
                 if (e.get() == key) {
+                    // 将Key的弱引用断掉
                     e.clear();
+                    // 清理哈希表的entry及entry.value
                     expungeStaleEntry(i);
                     return;
                 }
@@ -545,17 +570,18 @@ public class ThreadLocal<T> {
             // incremental rehashing due to garbage collector freeing
             // up refs in bunches (i.e., whenever the collector runs).
             int slotToExpunge = staleSlot;
-            for (int i = prevIndex(staleSlot, len);
-                 (e = tab[i]) != null;
-                 i = prevIndex(i, len))
+            // 【向前遍历】从staleSlot位置往前找一直找到e为null的那个哈希槽的下一个哈希槽（这个哈希槽的entry不为null但key为null），并把这个哈希槽位置赋值给slotToExpunge
+            // 【QUESTION72】假如整个哈希表都是entry不为null，但entry。key为null，此时就出现了死循环？
+            // 【ANSWER72】不会出现死循环，原因就是当哈希表的容量大小达到一定数量时，此时会进行扩容，那么总有空槽即entry为null的槽
+            for (int i = prevIndex(staleSlot, len); (e = tab[i]) != null; i = prevIndex(i, len))
                 if (e.get() == null)
                     slotToExpunge = i;
 
             // Find either the key or trailing null slot of run, whichever
             // occurs first
-            for (int i = nextIndex(staleSlot, len);
-                 (e = tab[i]) != null;
-                 i = nextIndex(i, len)) {
+            // 【向后遍历】从staleSlot位置往后找到下一个哈希槽不为null的entry
+            for (int i = nextIndex(staleSlot, len); (e = tab[i]) != null; i = nextIndex(i, len)) {
+                // 拿到Key
                 ThreadLocal<?> k = e.get();
 
                 // If we find key, then we need to swap it
@@ -563,15 +589,26 @@ public class ThreadLocal<T> {
                 // The newly stale slot, or any other stale slot
                 // encountered above it, can then be sent to expungeStaleEntry
                 // to remove or rehash all of the other entries in run.
+                // 如果往后找到的这个槽的k不为null，说明这个ThreadLocal实例key还未被回收，且k == key的话，说明这次要存的key与前一个槽过期的entry的k存在哈希冲突，说明之前存这个key时线性探测到下一个位置（即当前位置）去了，
+                // 这种情况下，找到了真爱，直接将这个要插入的key对应的entry调整到原来的正确哈希位置（因为占着正确哈希位置的entry过期了，占着茅坑不拉屎，让它滚到当前位置来），即位置交换哈
+
                 if (k == key) {
+
                     e.value = value;
 
                     tab[i] = tab[staleSlot];
+                    // 将staleSlot下一个哈希槽位置的entry放到staleSlot哈希槽位置
                     tab[staleSlot] = e;
 
                     // Start expunge at preceding stale entry if it exists
+                    // 如果之前从staleSlot这个位置开始向前直到遇到某个null的哈希槽为止都找没找到过期的哈希槽，所以此时slotToExpunge还是原来赋值的staleSlot，
+                    // 此时又因为从staleSlot位置向后找到了相同的key，对于这种情况又因为前面已经交换了位置，所以这里将i赋给slotToExpunge，即之后从这个位置开始清理即可
                     if (slotToExpunge == staleSlot)
                         slotToExpunge = i;
+                    // 再从返回的null位置的下一个位置开始清理一些过期的entry，这里是从slotToExpunge这个哈希槽位置开始清理连续的过期的entry哈
+                    // 因为expungeStaleEntry(slotToExpunge)做的是清理一段连续的过期的entry，不可能清理掉那些不连续的过期的entry，此外，在调用
+                    // expungeStaleEntry(slotToExpunge)方法清理过程中，GC又发生了，很可能某些entry的key弱引用又被断掉，因此又产生了一些新的过期的entry
+                    // 因此再次调用cleanSomeSlots方法做一次时间复杂度为O（logn）的过期entry的清理，而不是全表清理哈（为了性能）
                     cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
                     return;
                 }
@@ -579,20 +616,27 @@ public class ThreadLocal<T> {
                 // If we didn't find stale entry on backward scan, the
                 // first stale entry seen while scanning for key is the
                 // first still present in the run.
+                // 如果当前哈希槽存储的entry已经过期，且向前扫描时也没找到过期的entry，因为slotToExpunge == staleSlot，
+                // 此时就将当前哈希槽的位置赋给slotToExpunge，因为之前staleSlot槽的entry虽然也已经过期，但是此时要替换为新的entry哈
                 if (k == null && slotToExpunge == staleSlot)
                     slotToExpunge = i;
             }
-
+            // 执行到这里，说明虽然新的Key哈希冲突了，但是通过线性探测没找到真爱即没找到这个key对应的entry（说明当前哈希表不存在这个key对应的entry）
+            // 此时现将原来staleSlot哈希槽过期的entry的value置空，然后再新建一个entry放到这个staleSlot哈希槽位置
             // If key not found, put new entry in stale slot
             tab[staleSlot].value = null;
             tab[staleSlot] = new Entry(key, value);
 
             // If there are any other stale entries in run, expunge them
+            // 如果slotToExpunge == staleSlot，说明向前遍历没找到过期的entry且向后遍历也没有过期的entry，此时原来哈希定位到的过期的entry又被直接替换了，因此此时不用清理
+            // （暂时不管那些gc新产生的过期entry（可能会有，可能无，所以此时没必要扫描清理来浪费性能））
+            // 执行到这里，说明要么先前要么先后遍历找到了过期的entry了
             if (slotToExpunge != staleSlot)
                 cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
         }
 
         /**
+         * TODO 【QUESTION73】为何WeakHashMap需要引入referenceQueue来清理过期的数据呢？而ThreadLocal却没有？跟WeakHashMap的拉链法有关？
          * Expunge a stale entry by rehashing any possibly colliding entries
          * lying between staleSlot and the next null slot.  This also expunges
          * any other stale entries encountered before the trailing null.  See
@@ -606,7 +650,7 @@ public class ThreadLocal<T> {
         private int expungeStaleEntry(int staleSlot) {
             Entry[] tab = table;
             int len = tab.length;
-
+            // 首先清理staleSlot位置的entry
             // expunge entry at staleSlot
             tab[staleSlot].value = null;
             tab[staleSlot] = null;
@@ -615,14 +659,16 @@ public class ThreadLocal<T> {
             // Rehash until we encounter null
             Entry e;
             int i;
-            for (i = nextIndex(staleSlot, len);
-                 (e = tab[i]) != null;
-                 i = nextIndex(i, len)) {
+            // 从staleSlot位置开始寻找下一个不为null哈希槽的entry
+            for (i = nextIndex(staleSlot, len); (e = tab[i]) != null; i = nextIndex(i, len)) {
                 ThreadLocal<?> k = e.get();
+                // 如果找到的下一个哈希槽的entry的key为null，说明已经被回收过期了，此时直接清理这个槽的entry即可
                 if (k == null) {
                     e.value = null;
                     tab[i] = null;
                     size--;
+                // 如果找到的下一个哈希槽的entry的key不为null，说明key对应的entry还未过期,此时若k对哈希表长度重新取模后定位的哈希槽位置与当前位置不一致，
+                // 则说明之前的set操作发生了rehash操作，此时基于resize后的新表重新定位新的哈希槽，若哈希冲突，继续线性探测找到下一个空槽插入即可
                 } else {
                     int h = k.threadLocalHashCode & (len - 1);
                     if (h != i) {
@@ -636,21 +682,22 @@ public class ThreadLocal<T> {
                     }
                 }
             }
+            // the index of the next null slot after staleSlot
+            // i为staleSlot的下一个null位置，这个staleSlot为传入的staleSlot开始的最后一个staleSlot
             return i;
         }
 
         /**
-         * Heuristically scan some cells looking for stale entries.
+         * Heuristically[试探性地] scan some cells looking for stale entries.
          * This is invoked when either a new element is added, or
          * another stale one has been expunged. It performs a
-         * logarithmic number of scans, as a balance between no
+         * logarithmic[对数] number of scans, as a balance between no
          * scanning (fast but retains garbage) and a number of scans
          * proportional to number of elements, that would find all
          * garbage but would cause some insertions to take O(n) time.
          *
          * @param i a position known NOT to hold a stale entry. The
-         * scan starts at the element after i.
-         *
+         * scan starts at the element after i.这个i位置要么不存储entry，要么存储的entry的key没过期 TODO 【QUESTION74】 若threadLocal作为成员变量一直存活，但现场已经销毁了，这个threadLocalMap会被回收吗？
          * @param n scan control: {@code log2(n)} cells are scanned,
          * unless a stale entry is found, in which case
          * {@code log2(table.length)-1} additional cells are scanned.
@@ -663,6 +710,7 @@ public class ThreadLocal<T> {
          *
          * @return true if any stale entries have been removed.
          */
+        // 作为权衡的一个方法，清理一些过期的槽
         private boolean cleanSomeSlots(int i, int n) {
             boolean removed = false;
             Entry[] tab = table;
@@ -700,8 +748,9 @@ public class ThreadLocal<T> {
          * shrink the size of the table, double the table size.
          */
         private void rehash() {
+            // 首先进行全表的清理过期的entry
             expungeStaleEntries();
-
+            // 若清理后仍然size >= threshold - threshold / 4，那么进行resize且对旧表的数据进行重新hash定位到新表
             // Use lower threshold for doubling to avoid hysteresis
             if (size >= threshold - threshold / 4)
                 resize();
@@ -725,6 +774,7 @@ public class ThreadLocal<T> {
                         e.value = null; // Help the GC
                     } else {
                         int h = k.threadLocalHashCode & (newLen - 1);
+                        // 线性探测
                         while (newTab[h] != null)
                             h = nextIndex(h, newLen);
                         newTab[h] = e;
@@ -739,6 +789,11 @@ public class ThreadLocal<T> {
         }
 
         /**
+         * 【QUESTION74】当threadLocal为null，但线程池的线程还未销毁的情况下，expungeStaleEntry相关方法不是会清理过期entry，此时为啥还会出现内存泄露呢？
+         * 【ANSWER74】 首先得明白调用expungeXxx/cleanXxx等方法是什么时候触发的，因为清理过期数据的这些方法无非是当前线程调用ThreadLocal的set/get/remove
+         * 等方法调用触发的，而没有另外的后台线程去做这些清理动作的。当前线程通过ThreadLocal强引用的方式（TODO 直接通过ThreadLocal实例的话待分析）调用ThreadLocal
+         * 的set方法时，说明当前ThreadLocal实例仍然有强引用，因此Entry的key弱引用不会被断掉，此时该entry就不会成为过期的entry，因此当触发
+         * expungeXxx/cleanXxx等方法清理过期entry时，不会清理本次set的值。如果没有remove的话，则出现了内存泄露！
          * Expunge all stale entries in the table.
          */
         private void expungeStaleEntries() {

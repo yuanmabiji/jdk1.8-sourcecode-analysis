@@ -26,6 +26,8 @@
 package java.lang.ref;
 
 /**
+ * TODO 【QUESTION69】软引用，弱引用和虚引用被GC后，GC后的对象将被进入ReferenceQueue队列，那么ReferenceQueue队列不是也对这些被GC的对象保持了强引用了么？
+ *                   此时这些对象又是何时被GC？
  * Reference queues, to which registered reference objects are appended by the
  * garbage collector after the appropriate reachability changes are detected.
  *

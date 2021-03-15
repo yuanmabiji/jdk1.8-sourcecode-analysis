@@ -27,6 +27,7 @@ package java.lang.ref;
 
 
 /**
+ * 参考：https://blog.csdn.net/giemilh/article/details/96574785
  * Phantom reference objects, which are enqueued after the collector
  * determines that their referents may otherwise be reclaimed.  Phantom
  * references are most often used for scheduling pre-mortem cleanup actions in
