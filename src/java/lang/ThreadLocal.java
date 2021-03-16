@@ -170,7 +170,9 @@ public class ThreadLocal<T> {
      */
     public T get() {
         Thread t = Thread.currentThread();
+        // 拿到当前线程的本地副本ThreadLocalMap实例
         ThreadLocalMap map = getMap(t);
+        // 如果map不为null，则以threadLocal为key从当前线程的map中取出对应值
         if (map != null) {
             ThreadLocalMap.Entry e = map.getEntry(this);
             if (e != null) {
@@ -179,6 +181,8 @@ public class ThreadLocal<T> {
                 return result;
             }
         }
+        // 如果map为null，说明还未初始化，此时进行初始化，此时会执行子类覆写的initialValue方法，
+        // 并创建一个map实例赋给当前线程的threadLocals变量
         return setInitialValue();
     }
 
@@ -231,6 +235,7 @@ public class ThreadLocal<T> {
      */
      public void remove() {
          ThreadLocalMap m = getMap(Thread.currentThread());
+         // 若当前线程的threadLocals不为null，此时根据当前threadLocal key进行移除
          if (m != null)
              m.remove(this);
      }
@@ -430,10 +435,15 @@ public class ThreadLocal<T> {
          * @return the entry associated with key, or null if no such
          */
         private Entry getEntry(ThreadLocal<?> key) {
+            // 根据哈希码对哈希表长度进行取模定位该key对应桶的位置
             int i = key.threadLocalHashCode & (table.length - 1);
+            // 根据桶的位置拿到entry
             Entry e = table[i];
+            // 若取出的entry不为null且entry的key与当前的key相等，则说明找到了真爱，是自己，于是返回当前entry即可
             if (e != null && e.get() == key)
                 return e;
+            // 1）若取出的entry为null，说明可能当前哈希桶的元素过期被清理了或者之前没存过这个元素，此时调用getEntryAfterMiss方法直接返回null。
+            // 2）entry不为null但entry的key与当前key不等，说明出现了哈希冲突，此时需要进行线性探测查找下一个不为null且与当前key相等的entry
             else
                 return getEntryAfterMiss(key, i, e);
         }
@@ -453,14 +463,21 @@ public class ThreadLocal<T> {
 
             while (e != null) {
                 ThreadLocal<?> k = e.get();
+                // 【3】再将取出的entry与当前key比较，若相等，则直接返回；若entry的key为null，则调用expungeStaleEntry进行清理
                 if (k == key)
                     return e;
                 if (k == null)
                     expungeStaleEntry(i);
                 else
+                    // 【1】先拿到下一个哈希桶的位置
                     i = nextIndex(i, len);
+                // 【2】从下一个哈希桶取出entry
                 e = tab[i];
             }
+            // 【QUESTION77】为何这里仅仅可以通过e == null就可以判断哈希表不存在该元素？不用考虑哈希冲突后的线性向下探测么
+            // 【ANSWER77】因为expungeStaleEntry方法在清理一个元素后若进行重新哈希定位还有set方法调用replaceStaleEntry
+            // 方法时遇到哈希冲突的情况也会将后一个元素移动到正确的哈希桶位置，因此回答了本问题。
+            // 没找到返回null
             return null;
         }
 
@@ -530,14 +547,19 @@ public class ThreadLocal<T> {
          * Remove the entry for key.
          */
         private void remove(ThreadLocal<?> key) {
+            // 拿到当前的哈希表
             Entry[] tab = table;
+            // 拿到哈希表长度
             int len = tab.length;
+            // 定位哈希表桶的位置
             int i = key.threadLocalHashCode & (len-1);
+            // 1）首先取出当前哈希桶的元素entry，然后entry.key与当前key比对，若是同一个，则进行移除操作；
+            // 2）很可能1）处判断时key不等，说明出现了哈希冲突，此时需要继续线性探测找下个不为null的元素来查找当前key
             for (Entry e = tab[i]; e != null; e = tab[i = nextIndex(i, len)]) {
                 if (e.get() == key) {
                     // 将Key的弱引用断掉
                     e.clear();
-                    // 清理哈希表的entry及entry.value
+                    // 清理哈希表位置i的entry及entry.value
                     expungeStaleEntry(i);
                     return;
                 }
