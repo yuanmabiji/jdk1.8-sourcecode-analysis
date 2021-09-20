@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="91977b8c-f426-4596-9049-933affe765ab" name="Default Changelist" comment="添加线程池注释。">
+    <list default="true" id="91977b8c-f426-4596-9049-933affe765ab" name="Default Changelist" comment="添加线程池的toString相关注释">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/java/lang/reflect/Proxy.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/java/lang/reflect/Proxy.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -192,7 +191,8 @@
       <workItem from="1614054479208" duration="25998000" />
       <workItem from="1614561095429" duration="4911000" />
       <workItem from="1629180967276" duration="148000" />
-      <workItem from="1629510612607" duration="9583000" />
+      <workItem from="1629510612607" duration="17216000" />
+      <workItem from="1629939129859" duration="340000" />
     </task>
     <task id="LOCAL-00001" summary="暂时注释掉报错的类。">
       <created>1595131536331</created>
@@ -243,7 +243,21 @@
       <option name="project" value="LOCAL" />
       <updated>1614430397056</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="添加jdk动态代理的相关注释">
+      <created>1629534255640</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1629534255640</updated>
+    </task>
+    <task id="LOCAL-00009" summary="添加线程池的toString相关注释">
+      <created>1629793150300</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1629793150300</updated>
+    </task>
+    <option name="localTasksCounter" value="10" />
     <servers />
   </component>
   <component name="ToolWindowManager">
@@ -324,7 +338,9 @@
     <MESSAGE value="添加SIGNAL注释。" />
     <MESSAGE value="添加AQS注释。" />
     <MESSAGE value="添加线程池注释。" />
-    <option name="LAST_COMMIT_MESSAGE" value="添加线程池注释。" />
+    <MESSAGE value="添加jdk动态代理的相关注释" />
+    <MESSAGE value="添加线程池的toString相关注释" />
+    <option name="LAST_COMMIT_MESSAGE" value="添加线程池的toString相关注释" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

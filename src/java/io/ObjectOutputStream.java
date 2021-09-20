@@ -2142,6 +2142,7 @@ public class ObjectOutputStream
                     char c = cbuf[cpos];
                     if (c >= 0x0001 && c <= 0x007F) {
                         utflen++;
+                    // TODO QUESTION:为啥unicode>0x07FF的话utflen就+3，utf中不是还有四字节，五字节么？难道还有细分？
                     } else if (c > 0x07FF) {
                         utflen += 3;
                     } else {

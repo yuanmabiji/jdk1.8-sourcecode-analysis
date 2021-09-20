@@ -1483,7 +1483,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         // 【3】若任务入队失败，若线程池的worker线程数量还没达到maximumPoolSize，则新建一个非核心线程来执行
         else if (!addWorker(command, false)) // 注意这里传的是false，代表取值是maximnumPoolSize
             // 【4】若任务入队失败且线程池的worker线程数量达到了maximumPoolSize，此时则根据配置的拒绝策略来处理该任务
-            reject(command);
+            reject(command); // 当并发要执行的任务数量>任务队列大小+线程池的最大线程数(maxPoolSize)，此时会执行到这里，reject
     }
 
     /**
@@ -2019,7 +2019,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      */
     public String toString() {
         long ncompleted;
-        int nworkers, nactive;
+        int nworkers, nactive;// nworkers是代表池子线程数量；nactive表示目前正在执行的线程；
         final ReentrantLock mainLock = this.mainLock;
         mainLock.lock();
         try {
@@ -2028,7 +2028,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             nworkers = workers.size();
             for (Worker w : workers) {
                 ncompleted += w.completedTasks;
-                if (w.isLocked())
+                if (w.isLocked()) // 【重要】只要worker线程是被锁状态，说明该线程一定是正在执行，否则锁肯定是释放的，因为runWoker时一定有执行w.lock();
                     ++nactive;
             }
         } finally {
@@ -2042,8 +2042,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
             "[" + rs +
             ", pool size = " + nworkers +
             ", active threads = " + nactive +
-            ", queued tasks = " + workQueue.size() +
-            ", completed tasks = " + ncompleted +
+            ", queued tasks = " + workQueue.size() + // 目前任务队列中积压的任务数量
+            ", completed tasks = " + ncompleted + // 表示线程池执行完的任务数量（包括执行异常的任务）有多少
             "]";
     }
 
