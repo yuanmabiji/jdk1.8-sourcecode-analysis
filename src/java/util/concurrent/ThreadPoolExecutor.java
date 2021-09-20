@@ -1490,7 +1490,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * Initiates an orderly shutdown in which previously submitted
      * tasks are executed, but no new tasks will be accepted.
      * Invocation has no additional effect if already shut down.
-     *
+     *          TODO QUESTION:有关shutdown使线程执不执行任务的逻辑待分析
      * <p>This method does not wait for previously submitted tasks to
      * complete execution.  Use {@link #awaitTermination awaitTermination}
      * to do that.
@@ -1502,7 +1502,9 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         mainLock.lock();
         try {
             checkShutdownAccess();
+            // 先设置SHUTDOWN状态，以便在getTask的while循环里等workQueue.take()阻塞的线程被interrupt后，此时会再次执行while循环，从而能检测到rs >= SHUTDOWN，然后返回null让线程退出
             advanceRunState(SHUTDOWN);
+            // 这里中断workers集合的线程，包括运行和workQueue.take()阻塞的线程
             interruptIdleWorkers();
             onShutdown(); // hook for ScheduledThreadPoolExecutor
         } finally {
